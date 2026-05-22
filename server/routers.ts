@@ -1,28 +1,564 @@
+import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router } from "./_core/trpc";
+import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import {
+  getMetaAccountsByUserId, upsertMetaAccount, updateMetaAccountStatus,
+  getCampaignsByUserId, getCampaignById, createCampaign, updateCampaign,
+  getAdSetsByCampaignId, createAdSet, updateAdSet,
+  getAdsByAdSetId, createAd, updateAdStatus,
+  getKpiSnapshotsByUserId, getKpiSnapshotsByCampaign, insertKpiSnapshot,
+  getGoalsByUserId, getGoalById, createGoal, updateGoal,
+  getAgentLogsByUserId, insertAgentLog,
+  getAbTestsByUserId, getAbTestById, createAbTest, updateAbTest,
+  getAlertsByUserId, insertAlert, markAlertRead, resolveAlert,
+  getCopyGenerationsByUserId, insertCopyGeneration, updateCopyGenerationSelection,
+  getTrackingConfigByAccount, upsertTrackingConfig,
+} from "./db";
+import {
+  getAdAccountInfo, getMetaCampaigns, createMetaCampaign,
+  getMetaAdSets, createMetaAdSet, getMetaAds,
+  updateMetaAdStatus, getAccountInsights, getCampaignInsights,
+  getPixels, createPixel, parseInsightKpis,
+} from "./metaApi";
+import {
+  runAccountAudit, generateAdCopy, runOptimizationCycle,
+  evaluateAbTest, triggerAlert,
+} from "./aiAgent";
 
 export const appRouter = router({
-    // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-      return {
-        success: true,
-      } as const;
+      return { success: true } as const;
     }),
   }),
 
-  // TODO: add feature routers here, e.g.
-  // todo: router({
-  //   list: protectedProcedure.query(({ ctx }) =>
-  //     db.getUserTodos(ctx.user.id)
-  //   ),
-  // }),
+  // ─── Meta Accounts ──────────────────────────────────────────────────────────
+  meta: router({
+    listAccounts: protectedProcedure.query(async ({ ctx }) => {
+      return getMetaAccountsByUserId(ctx.user.id);
+    }),
+
+    connectAccount: protectedProcedure.input(z.object({
+      accountId: z.string(),
+      accountName: z.string(),
+      accessToken: z.string(),
+    })).mutation(async ({ ctx, input }) => {
+      // Verify token by fetching account info
+      const info = await getAdAccountInfo(input.accountId, input.accessToken);
+      await upsertMetaAccount({
+        userId: ctx.user.id,
+        accountId: input.accountId,
+        accountName: info.name ?? input.accountName,
+        accessToken: input.accessToken,
+        currency: info.currency ?? "EUR",
+        timezone: info.timezone_name ?? "Europe/Rome",
+        status: "active",
+      });
+      await insertAgentLog({
+        userId: ctx.user.id,
+        actionType: "audit",
+        title: `Account META connesso: ${info.name}`,
+        reasoning: "Connessione account META completata con successo.",
+        impact: "positive", severity: "info",
+      });
+      return { success: true, accountName: info.name };
+    }),
+
+    disconnectAccount: protectedProcedure.input(z.object({ accountId: z.number() })).mutation(async ({ ctx, input }) => {
+      await updateMetaAccountStatus(input.accountId, "disconnected");
+      return { success: true };
+    }),
+
+    syncAccount: protectedProcedure.input(z.object({ metaAccountId: z.number() })).mutation(async ({ ctx, input }) => {
+      const accounts = await getMetaAccountsByUserId(ctx.user.id);
+      const account = accounts.find(a => a.id === input.metaAccountId);
+      if (!account?.accessToken) throw new Error("Account non trovato o token mancante");
+
+      const insights = await getAccountInsights(account.accountId, account.accessToken, "last_30d");
+      for (const insight of insights.slice(0, 30)) {
+        const kpis = parseInsightKpis(insight);
+        await insertKpiSnapshot({
+          userId: ctx.user.id,
+          metaAccountId: input.metaAccountId,
+          snapshotDate: new Date(insight.date_start),
+          ...kpis,
+          impressions: kpis.impressions,
+          clicks: kpis.clicks,
+          spend: kpis.spend.toString(),
+        conversions: Math.round(kpis.conversions),
+        leads: Math.round(kpis.leads),
+        reach: kpis.reach,
+        frequency: kpis.frequency.toString(),
+        ctr: kpis.ctr.toString(),
+        cpc: kpis.cpc.toString(),
+        cpm: kpis.cpm.toString(),
+        cpa: kpis.cpa.toString(),
+        cpl: kpis.cpl.toString(),
+        roas: kpis.roas.toString(),
+        conversionRate: kpis.conversionRate.toString(),
+        revenue: kpis.revenue.toString(),
+        });
+      }
+      return { success: true, snapshotsSaved: insights.length };
+    }),
+  }),
+
+  // ─── KPI Dashboard ──────────────────────────────────────────────────────────
+  kpi: router({
+    getDashboard: protectedProcedure.input(z.object({ days: z.number().default(30) })).query(async ({ ctx, input }) => {
+      const snapshots = await getKpiSnapshotsByUserId(ctx.user.id, input.days);
+      const campaigns = await getCampaignsByUserId(ctx.user.id);
+      const goals = await getGoalsByUserId(ctx.user.id);
+      const unreadAlerts = await getAlertsByUserId(ctx.user.id, true);
+
+      // Aggregate totals
+      const totals = snapshots.reduce((acc, s) => ({
+        spend: acc.spend + parseFloat(s.spend?.toString() ?? "0"),
+        revenue: acc.revenue + parseFloat(s.revenue?.toString() ?? "0"),
+        conversions: acc.conversions + (s.conversions ?? 0),
+        leads: acc.leads + (s.leads ?? 0),
+        clicks: acc.clicks + (s.clicks ?? 0),
+        impressions: acc.impressions + (s.impressions ?? 0),
+      }), { spend: 0, revenue: 0, conversions: 0, leads: 0, clicks: 0, impressions: 0 });
+
+      const roas = totals.spend > 0 ? totals.revenue / totals.spend : 0;
+      const cpa = totals.conversions > 0 ? totals.spend / totals.conversions : 0;
+      const cpl = totals.leads > 0 ? totals.spend / totals.leads : 0;
+      const ctr = totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0;
+      const conversionRate = totals.clicks > 0 ? (totals.conversions / totals.clicks) * 100 : 0;
+
+      // Daily chart data
+      const dailyMap = new Map<string, { date: string; spend: number; revenue: number; conversions: number; roas: number }>();
+      for (const s of snapshots) {
+        const dateKey = new Date(s.snapshotDate).toISOString().split("T")[0];
+        const existing = dailyMap.get(dateKey) ?? { date: dateKey, spend: 0, revenue: 0, conversions: 0, roas: 0 };
+        existing.spend += parseFloat(s.spend?.toString() ?? "0");
+        existing.revenue += parseFloat(s.revenue?.toString() ?? "0");
+        existing.conversions += s.conversions ?? 0;
+        dailyMap.set(dateKey, existing);
+      }
+      const chartData = Array.from(dailyMap.values()).map(d => ({ ...d, roas: d.spend > 0 ? d.revenue / d.spend : 0 })).sort((a, b) => a.date.localeCompare(b.date));
+
+      return {
+        kpis: { roas: Math.round(roas * 100) / 100, cpa: Math.round(cpa * 100) / 100, cpl: Math.round(cpl * 100) / 100, ctr: Math.round(ctr * 100) / 100, conversionRate: Math.round(conversionRate * 100) / 100, totalSpend: Math.round(totals.spend * 100) / 100, totalRevenue: Math.round(totals.revenue * 100) / 100, totalConversions: totals.conversions, totalLeads: totals.leads },
+        chartData,
+        activeCampaigns: campaigns.filter(c => c.status === "ACTIVE").length,
+        totalCampaigns: campaigns.length,
+        activeGoals: goals.filter(g => g.status === "running").length,
+        unreadAlerts: unreadAlerts.length,
+      };
+    }),
+
+    getCampaignKpis: protectedProcedure.input(z.object({ campaignId: z.number(), days: z.number().default(30) })).query(async ({ ctx, input }) => {
+      return getKpiSnapshotsByCampaign(input.campaignId, input.days);
+    }),
+  }),
+
+  // ─── Campaigns ──────────────────────────────────────────────────────────────
+  campaigns: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      return getCampaignsByUserId(ctx.user.id);
+    }),
+
+    get: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ ctx, input }) => {
+      const campaign = await getCampaignById(input.id);
+      if (!campaign || campaign.userId !== ctx.user.id) throw new Error("Campagna non trovata");
+      const adSets = await getAdSetsByCampaignId(input.id);
+      return { campaign, adSets };
+    }),
+
+    create: protectedProcedure.input(z.object({
+      metaAccountId: z.number(),
+      name: z.string(),
+      objective: z.enum(["OUTCOME_TRAFFIC", "OUTCOME_LEADS", "OUTCOME_SALES", "OUTCOME_AWARENESS", "OUTCOME_ENGAGEMENT", "OUTCOME_APP_PROMOTION"]),
+      dailyBudget: z.number().optional(),
+      lifetimeBudget: z.number().optional(),
+      budgetLimit: z.number().optional(),
+      notes: z.string().optional(),
+      publishToMeta: z.boolean().default(false),
+    })).mutation(async ({ ctx, input }) => {
+      let metaCampaignId: string | undefined;
+
+      if (input.publishToMeta) {
+        const accounts = await getMetaAccountsByUserId(ctx.user.id);
+        const account = accounts.find(a => a.id === input.metaAccountId);
+        if (account?.accessToken) {
+          const result = await createMetaCampaign(account.accountId, account.accessToken, {
+            name: input.name,
+            objective: input.objective,
+            status: "PAUSED",
+            special_ad_categories: [],
+            daily_budget: input.dailyBudget ? Math.round(input.dailyBudget * 100) : undefined,
+          });
+          metaCampaignId = result.id;
+        }
+      }
+
+      await createCampaign({
+        userId: ctx.user.id,
+        metaAccountId: input.metaAccountId,
+        metaCampaignId,
+        name: input.name,
+        objective: input.objective,
+        status: "DRAFT",
+        dailyBudget: input.dailyBudget?.toString(),
+        lifetimeBudget: input.lifetimeBudget?.toString(),
+        budgetLimit: input.budgetLimit?.toString(),
+        notes: input.notes,
+      });
+
+      await insertAgentLog({
+        userId: ctx.user.id,
+        actionType: "campaign_create",
+        title: `Campagna creata: ${input.name}`,
+        reasoning: `Nuova campagna ${input.objective} creata${metaCampaignId ? " e pubblicata su META" : " in bozza"}.`,
+        impact: "positive", severity: "info",
+      });
+
+      return { success: true };
+    }),
+
+    updateStatus: protectedProcedure.input(z.object({
+      id: z.number(),
+      status: z.enum(["ACTIVE", "PAUSED", "ARCHIVED"]),
+    })).mutation(async ({ ctx, input }) => {
+      const campaign = await getCampaignById(input.id);
+      if (!campaign || campaign.userId !== ctx.user.id) throw new Error("Campagna non trovata");
+      await updateCampaign(input.id, { status: input.status });
+      return { success: true };
+    }),
+
+    syncFromMeta: protectedProcedure.input(z.object({ metaAccountId: z.number() })).mutation(async ({ ctx, input }) => {
+      const accounts = await getMetaAccountsByUserId(ctx.user.id);
+      const account = accounts.find(a => a.id === input.metaAccountId);
+      if (!account?.accessToken) throw new Error("Account non configurato");
+
+      const metaCampaigns = await getMetaCampaigns(account.accountId, account.accessToken);
+      let synced = 0;
+      for (const mc of metaCampaigns) {
+        await createCampaign({
+          userId: ctx.user.id,
+          metaAccountId: input.metaAccountId,
+          metaCampaignId: mc.id,
+          name: mc.name,
+          objective: (mc.objective as typeof import("../drizzle/schema").campaigns.$inferInsert.objective) ?? "OUTCOME_TRAFFIC",
+          status: (mc.status as typeof import("../drizzle/schema").campaigns.$inferInsert.status) ?? "PAUSED",
+          dailyBudget: mc.daily_budget?.toString(),
+          lifetimeBudget: mc.lifetime_budget?.toString(),
+        });
+        synced++;
+      }
+      return { success: true, synced };
+    }),
+  }),
+
+  // ─── Audit AI ───────────────────────────────────────────────────────────────
+  audit: router({
+    run: protectedProcedure.input(z.object({ metaAccountId: z.number() })).mutation(async ({ ctx, input }) => {
+      const accounts = await getMetaAccountsByUserId(ctx.user.id);
+      const account = accounts.find(a => a.id === input.metaAccountId);
+      if (!account?.accessToken) throw new Error("Account META non configurato. Connetti prima il tuo account.");
+      const report = await runAccountAudit(ctx.user.id, input.metaAccountId, account.accessToken, account.accountId);
+      return { report };
+    }),
+  }),
+
+  // ─── Copy Generation ────────────────────────────────────────────────────────
+  copyGen: router({
+    generate: protectedProcedure.input(z.object({
+      objective: z.string(),
+      productDescription: z.string(),
+      targetAudience: z.string(),
+      tone: z.string().default("professionale"),
+      campaignId: z.number().optional(),
+      campaignContext: z.string().optional(),
+    })).mutation(async ({ ctx, input }) => {
+      const result = await generateAdCopy({
+        userId: ctx.user.id,
+        objective: input.objective,
+        productDescription: input.productDescription,
+        targetAudience: input.targetAudience,
+        tone: input.tone,
+        campaignContext: input.campaignContext,
+      });
+
+      const gen = await insertCopyGeneration({
+        userId: ctx.user.id,
+        campaignId: input.campaignId,
+        prompt: `${input.objective} | ${input.productDescription} | ${input.targetAudience}`,
+        objective: input.objective,
+        targetAudience: input.targetAudience,
+        productDescription: input.productDescription,
+        tone: input.tone,
+        generatedHeadlines: result.headlines,
+        generatedPrimaryTexts: result.primaryTexts,
+        generatedDescriptions: result.descriptions,
+      });
+
+      await insertAgentLog({
+        userId: ctx.user.id,
+        campaignId: input.campaignId,
+        actionType: "copy_generation",
+        title: "Copy pubblicitari generati dall'AI",
+        reasoning: `Generati ${result.headlines.length} varianti di copy per obiettivo: ${input.objective}`,
+        impact: "positive", severity: "info",
+      });
+
+      return { ...result, generationId: gen };
+    }),
+
+    list: protectedProcedure.query(async ({ ctx }) => {
+      return getCopyGenerationsByUserId(ctx.user.id);
+    }),
+
+    selectCopy: protectedProcedure.input(z.object({
+      generationId: z.number(),
+      headline: z.string(),
+      primaryText: z.string(),
+      description: z.string(),
+    })).mutation(async ({ ctx, input }) => {
+      await updateCopyGenerationSelection(input.generationId, input.headline, input.primaryText, input.description);
+      return { success: true };
+    }),
+  }),
+
+  // ─── Goals (Goal-based Agent) ────────────────────────────────────────────────
+  goals: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      return getGoalsByUserId(ctx.user.id);
+    }),
+
+    create: protectedProcedure.input(z.object({
+      metaAccountId: z.number(),
+      title: z.string(),
+      description: z.string().optional(),
+      goalType: z.enum(["leads", "sales", "registrations", "traffic", "awareness"]),
+      targetValue: z.number(),
+      targetUnit: z.string().default("count"),
+      budgetMax: z.number(),
+      campaignId: z.number().optional(),
+    })).mutation(async ({ ctx, input }) => {
+      await createGoal({
+        userId: ctx.user.id,
+        metaAccountId: input.metaAccountId,
+        title: input.title,
+        description: input.description,
+        goalType: input.goalType,
+        targetValue: input.targetValue.toString(),
+        targetUnit: input.targetUnit,
+        budgetMax: input.budgetMax.toString(),
+        campaignId: input.campaignId,
+        status: "pending",
+      });
+      return { success: true };
+    }),
+
+    launch: protectedProcedure.input(z.object({ goalId: z.number() })).mutation(async ({ ctx, input }) => {
+      const goal = await getGoalById(input.goalId);
+      if (!goal || goal.userId !== ctx.user.id) throw new Error("Obiettivo non trovato");
+      if (goal.agentRunning) throw new Error("L'agente è già in esecuzione per questo obiettivo");
+
+      await updateGoal(input.goalId, { status: "running", agentRunning: true, agentStartedAt: new Date() });
+      await insertAgentLog({
+        userId: ctx.user.id,
+        goalId: input.goalId,
+        actionType: "goal_started",
+        title: `Agente AI lanciato: ${goal.title}`,
+        reasoning: `L'agente AI inizia a lavorare autonomamente per raggiungere l'obiettivo: ${goal.goalType} target ${goal.targetValue} ${goal.targetUnit} con budget massimo €${goal.budgetMax}.`,
+        impact: "positive", severity: "info",
+      });
+
+      // Run first optimization cycle immediately
+      await runOptimizationCycle(ctx.user.id, input.goalId);
+      return { success: true };
+    }),
+
+    pause: protectedProcedure.input(z.object({ goalId: z.number() })).mutation(async ({ ctx, input }) => {
+      const goal = await getGoalById(input.goalId);
+      if (!goal || goal.userId !== ctx.user.id) throw new Error("Obiettivo non trovato");
+      await updateGoal(input.goalId, { status: "paused", agentRunning: false, agentStoppedAt: new Date() });
+      await insertAgentLog({
+        userId: ctx.user.id, goalId: input.goalId,
+        actionType: "optimization",
+        title: `Agente AI messo in pausa: ${goal.title}`,
+        reasoning: "Supervisore umano ha messo in pausa l'agente AI.",
+        impact: "neutral", severity: "warning",
+      });
+      return { success: true };
+    }),
+
+    updateProgress: protectedProcedure.input(z.object({
+      goalId: z.number(),
+      currentValue: z.number(),
+      budgetSpent: z.number(),
+    })).mutation(async ({ ctx, input }) => {
+      await updateGoal(input.goalId, {
+        currentValue: input.currentValue.toString(),
+        budgetSpent: input.budgetSpent.toString(),
+      });
+      return { success: true };
+    }),
+  }),
+
+  // ─── Agent Logs ─────────────────────────────────────────────────────────────
+  agentLogs: router({
+    list: protectedProcedure.input(z.object({ limit: z.number().default(100) })).query(async ({ ctx, input }) => {
+      return getAgentLogsByUserId(ctx.user.id, input.limit);
+    }),
+  }),
+
+  // ─── AB Tests ───────────────────────────────────────────────────────────────
+  abTests: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      return getAbTestsByUserId(ctx.user.id);
+    }),
+
+    create: protectedProcedure.input(z.object({
+      campaignId: z.number(),
+      name: z.string(),
+      hypothesis: z.string().optional(),
+    })).mutation(async ({ ctx, input }) => {
+      await createAbTest({
+        userId: ctx.user.id,
+        campaignId: input.campaignId,
+        name: input.name,
+        hypothesis: input.hypothesis,
+        status: "running",
+      });
+      await insertAgentLog({
+        userId: ctx.user.id, campaignId: input.campaignId,
+        actionType: "ab_test_create",
+        title: `A/B Test creato: ${input.name}`,
+        reasoning: `Nuovo test A/B avviato per campagna ID ${input.campaignId}. Ipotesi: ${input.hypothesis ?? "N/A"}`,
+        impact: "neutral", severity: "info",
+      });
+      return { success: true };
+    }),
+
+    evaluate: protectedProcedure.input(z.object({ testId: z.number() })).mutation(async ({ ctx, input }) => {
+      const test = await getAbTestById(input.testId);
+      if (!test || test.userId !== ctx.user.id) throw new Error("Test non trovato");
+      if (!test.variantAAdId || !test.variantBAdId) throw new Error("Varianti non configurate");
+
+      const accounts = await getMetaAccountsByUserId(ctx.user.id);
+      const account = accounts[0];
+      if (!account?.accessToken) throw new Error("Account META non configurato");
+
+      const result = await evaluateAbTest(ctx.user.id, input.testId, test.variantAAdId, test.variantBAdId, account.accessToken);
+
+      await updateAbTest(input.testId, {
+        winnerVariant: result.winner,
+        confidenceLevel: result.confidence.toString(),
+        statisticalSignificance: result.confidence >= 95,
+        status: result.winner !== "inconclusive" ? "completed" : "running",
+        conclusionNotes: result.reasoning,
+        endDate: result.winner !== "inconclusive" ? new Date() : undefined,
+      });
+
+      await insertAgentLog({
+        userId: ctx.user.id,
+        actionType: "ab_test_evaluate",
+        title: `A/B Test valutato: vincitore ${result.winner}`,
+        reasoning: result.reasoning,
+        actionDetails: { confidence: result.confidence, winner: result.winner },
+        impact: result.winner !== "inconclusive" ? "positive" : "neutral",
+        severity: "info",
+      });
+
+      return result;
+    }),
+  }),
+
+  // ─── Alerts ─────────────────────────────────────────────────────────────────
+  alerts: router({
+    list: protectedProcedure.input(z.object({ onlyUnread: z.boolean().default(false) })).query(async ({ ctx, input }) => {
+      return getAlertsByUserId(ctx.user.id, input.onlyUnread);
+    }),
+
+    markRead: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
+      await markAlertRead(input.id);
+      return { success: true };
+    }),
+
+    resolve: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
+      await resolveAlert(input.id);
+      return { success: true };
+    }),
+
+    markAllRead: protectedProcedure.mutation(async ({ ctx }) => {
+      const unread = await getAlertsByUserId(ctx.user.id, true);
+      for (const alert of unread) await markAlertRead(alert.id);
+      return { success: true, count: unread.length };
+    }),
+  }),
+
+  // ─── Tracking ───────────────────────────────────────────────────────────────
+  tracking: router({
+    getConfig: protectedProcedure.input(z.object({ metaAccountId: z.number() })).query(async ({ ctx, input }) => {
+      return getTrackingConfigByAccount(input.metaAccountId);
+    }),
+
+    saveConfig: protectedProcedure.input(z.object({
+      metaAccountId: z.number(),
+      pixelId: z.string().optional(),
+      pixelName: z.string().optional(),
+      capiEnabled: z.boolean().default(false),
+      capiAccessToken: z.string().optional(),
+      websiteUrl: z.string().optional(),
+      trackedEvents: z.array(z.string()).optional(),
+    })).mutation(async ({ ctx, input }) => {
+      await upsertTrackingConfig({
+        userId: ctx.user.id,
+        metaAccountId: input.metaAccountId,
+        pixelId: input.pixelId,
+        pixelName: input.pixelName,
+        capiEnabled: input.capiEnabled,
+        capiAccessToken: input.capiAccessToken,
+        websiteUrl: input.websiteUrl,
+        trackedEvents: input.trackedEvents,
+      });
+      await insertAgentLog({
+        userId: ctx.user.id,
+        actionType: "tracking_setup",
+        title: "Configurazione tracking aggiornata",
+        reasoning: `Pixel${input.pixelId ? ` ID: ${input.pixelId}` : ""} e CAPI ${input.capiEnabled ? "abilitati" : "disabilitati"}.`,
+        impact: "positive", severity: "info",
+      });
+      return { success: true };
+    }),
+
+    verifyPixel: protectedProcedure.input(z.object({ metaAccountId: z.number() })).mutation(async ({ ctx, input }) => {
+      const accounts = await getMetaAccountsByUserId(ctx.user.id);
+      const account = accounts.find(a => a.id === input.metaAccountId);
+      if (!account?.accessToken) throw new Error("Account META non configurato");
+
+      const pixels = await getPixels(account.accountId, account.accessToken);
+      const config = await getTrackingConfigByAccount(input.metaAccountId);
+
+      if (config?.pixelId) {
+        const pixel = pixels.find(p => p.id === config.pixelId);
+        if (pixel?.last_fired_time) {
+          await upsertTrackingConfig({ ...config, pixelInstalled: true, pixelVerifiedAt: new Date(), lastVerifiedAt: new Date() });
+          return { verified: true, lastFired: pixel.last_fired_time, pixelName: pixel.name };
+        }
+      }
+
+      return { verified: false, availablePixels: pixels };
+    }),
+
+    getPixels: protectedProcedure.input(z.object({ metaAccountId: z.number() })).query(async ({ ctx, input }) => {
+      const accounts = await getMetaAccountsByUserId(ctx.user.id);
+      const account = accounts.find(a => a.id === input.metaAccountId);
+      if (!account?.accessToken) return [];
+      return getPixels(account.accountId, account.accessToken);
+    }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

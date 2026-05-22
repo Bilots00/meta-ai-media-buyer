@@ -1,264 +1,228 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarHeader,
-  SidebarInset,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-  SidebarTrigger,
-  useSidebar,
-} from "@/components/ui/sidebar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { getLoginUrl } from "@/const";
-import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, Users } from "lucide-react";
-import { CSSProperties, useEffect, useRef, useState } from "react";
+import { trpc } from "@/lib/trpc";
+import {
+  Activity,
+  AlertTriangle,
+  BarChart3,
+  Bell,
+  Bot,
+  ChevronRight,
+  FlaskConical,
+  LogOut,
+  Megaphone,
+  PanelLeft,
+  Plug,
+  Sparkles,
+  Target,
+  Zap,
+} from "lucide-react";
+import { useState } from "react";
 import { useLocation } from "wouter";
-import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
-import { Button } from "./ui/button";
+import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
-const menuItems = [
-  { icon: LayoutDashboard, label: "Page 1", path: "/" },
-  { icon: Users, label: "Page 2", path: "/some-path" },
+const navItems = [
+  { icon: BarChart3, label: "Dashboard", path: "/dashboard", description: "KPI & Performance" },
+  { icon: Megaphone, label: "Campagne", path: "/campaigns", description: "Gestione campagne META" },
+  { icon: Target, label: "Obiettivi AI", path: "/goals", description: "Goal-based agent" },
+  { icon: Sparkles, label: "Audit AI", path: "/audit", description: "Analisi account" },
+  { icon: Bot, label: "Copy Generator", path: "/copy", description: "Testi pubblicitari AI" },
+  { icon: FlaskConical, label: "A/B Testing", path: "/ab-testing", description: "Test varianti" },
+  { icon: Zap, label: "Tracking", path: "/tracking", description: "Pixel & CAPI" },
+  { icon: Activity, label: "Log Agente", path: "/logs", description: "Azioni autonome AI" },
+  { icon: AlertTriangle, label: "Alert", path: "/alerts", description: "Anomalie & Recovery" },
+  { icon: Plug, label: "Connetti Account", path: "/connect", description: "META Business" },
 ];
 
-const SIDEBAR_WIDTH_KEY = "sidebar-width";
-const DEFAULT_WIDTH = 280;
-const MIN_WIDTH = 200;
-const MAX_WIDTH = 480;
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const { loading, user, logout } = useAuth();
+  const [location, navigate] = useLocation();
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
-    return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
-  });
-  const { loading, user } = useAuth();
+  const { data: dashboard } = trpc.kpi.getDashboard.useQuery({ days: 30 }, { enabled: !!user, refetchInterval: 60000 });
+  const { data: alerts } = trpc.alerts.list.useQuery({ onlyUnread: true }, { enabled: !!user, refetchInterval: 30000 });
+  const unreadCount = alerts?.length ?? 0;
 
-  useEffect(() => {
-    localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
-  }, [sidebarWidth]);
-
-  if (loading) {
-    return <DashboardLayoutSkeleton />
-  }
+  if (loading) return <DashboardLayoutSkeleton />;
 
   if (!user) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="flex flex-col items-center gap-8 p-8 max-w-md w-full">
-          <div className="flex flex-col items-center gap-6">
-            <h1 className="text-2xl font-semibold tracking-tight text-center">
-              Sign in to continue
-            </h1>
-            <p className="text-sm text-muted-foreground text-center max-w-sm">
-              Access to this dashboard requires authentication. Continue to launch the login flow.
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "oklch(0.1 0.01 260)" }}>
+        <div className="text-center max-w-md px-8">
+          <div className="mb-8">
+            <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6" style={{ background: "var(--gradient-primary)" }}>
+              <Bot className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-3xl font-bold text-foreground mb-3">META AI Media Buyer</h1>
+            <p className="text-muted-foreground text-sm leading-relaxed">
+              Il tuo agente AI autonomo per la gestione e ottimizzazione delle campagne pubblicitarie META.
             </p>
           </div>
           <Button
-            onClick={() => {
-              window.location.href = getLoginUrl();
-            }}
+            onClick={() => { window.location.href = getLoginUrl(); }}
             size="lg"
-            className="w-full shadow-lg hover:shadow-xl transition-all"
+            className="w-full font-semibold"
+            style={{ background: "var(--gradient-primary)" }}
           >
-            Sign in
+            Accedi alla piattaforma
           </Button>
         </div>
       </div>
     );
   }
 
-  return (
-    <SidebarProvider
-      style={
-        {
-          "--sidebar-width": `${sidebarWidth}px`,
-        } as CSSProperties
-      }
-    >
-      <DashboardLayoutContent setSidebarWidth={setSidebarWidth}>
-        {children}
-      </DashboardLayoutContent>
-    </SidebarProvider>
-  );
-}
-
-type DashboardLayoutContentProps = {
-  children: React.ReactNode;
-  setSidebarWidth: (width: number) => void;
-};
-
-function DashboardLayoutContent({
-  children,
-  setSidebarWidth,
-}: DashboardLayoutContentProps) {
-  const { user, logout } = useAuth();
-  const [location, setLocation] = useLocation();
-  const { state, toggleSidebar } = useSidebar();
-  const isCollapsed = state === "collapsed";
-  const [isResizing, setIsResizing] = useState(false);
-  const sidebarRef = useRef<HTMLDivElement>(null);
-  const activeMenuItem = menuItems.find(item => item.path === location);
-  const isMobile = useIsMobile();
-
-  useEffect(() => {
-    if (isCollapsed) {
-      setIsResizing(false);
-    }
-  }, [isCollapsed]);
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing) return;
-
-      const sidebarLeft = sidebarRef.current?.getBoundingClientRect().left ?? 0;
-      const newWidth = e.clientX - sidebarLeft;
-      if (newWidth >= MIN_WIDTH && newWidth <= MAX_WIDTH) {
-        setSidebarWidth(newWidth);
-      }
-    };
-
-    const handleMouseUp = () => {
-      setIsResizing(false);
-    };
-
-    if (isResizing) {
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-    }
-
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-  }, [isResizing, setSidebarWidth]);
+  const activeGoals = dashboard?.activeGoals ?? 0;
 
   return (
-    <>
-      <div className="relative" ref={sidebarRef}>
-        <Sidebar
-          collapsible="icon"
-          className="border-r-0"
-          disableTransition={isResizing}
-        >
-          <SidebarHeader className="h-16 justify-center">
-            <div className="flex items-center gap-3 px-2 transition-all w-full">
-              <button
-                onClick={toggleSidebar}
-                className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring shrink-0"
-                aria-label="Toggle navigation"
-              >
-                <PanelLeft className="h-4 w-4 text-muted-foreground" />
-              </button>
-              {!isCollapsed ? (
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="font-semibold tracking-tight truncate">
-                    Navigation
-                  </span>
-                </div>
-              ) : null}
+    <div className="flex h-screen overflow-hidden" style={{ background: "oklch(0.1 0.01 260)" }}>
+      {/* Sidebar */}
+      <aside
+        className="flex flex-col transition-all duration-300 ease-out shrink-0"
+        style={{
+          width: sidebarOpen ? "260px" : "72px",
+          background: "oklch(0.12 0.015 260)",
+          borderRight: "1px solid oklch(0.2 0.015 260)",
+        }}
+      >
+        {/* Logo */}
+        <div className="flex items-center gap-3 px-4 py-5 shrink-0" style={{ borderBottom: "1px solid oklch(0.2 0.015 260)" }}>
+          <div
+            className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+            style={{ background: "var(--gradient-primary)" }}
+          >
+            <Bot className="w-5 h-5 text-white" />
+          </div>
+          {sidebarOpen && (
+            <div className="overflow-hidden">
+              <div className="font-bold text-sm text-foreground whitespace-nowrap">META AI Agent</div>
+              <div className="text-xs text-muted-foreground whitespace-nowrap">Media Buyer</div>
             </div>
-          </SidebarHeader>
+          )}
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="ml-auto p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          >
+            <PanelLeft className="w-4 h-4" />
+          </button>
+        </div>
 
-          <SidebarContent className="gap-0">
-            <SidebarMenu className="px-2 py-1">
-              {menuItems.map(item => {
-                const isActive = location === item.path;
-                return (
-                  <SidebarMenuItem key={item.path}>
-                    <SidebarMenuButton
-                      isActive={isActive}
-                      onClick={() => setLocation(item.path)}
-                      tooltip={item.label}
-                      className={`h-10 transition-all font-normal`}
-                    >
-                      <item.icon
-                        className={`h-4 w-4 ${isActive ? "text-primary" : ""}`}
-                      />
-                      <span>{item.label}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarContent>
-
-          <SidebarFooter className="p-3">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <Avatar className="h-9 w-9 border shrink-0">
-                    <AvatarFallback className="text-xs font-medium">
-                      {user?.name?.charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-                    <p className="text-sm font-medium truncate leading-none">
-                      {user?.name || "-"}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate mt-1.5">
-                      {user?.email || "-"}
-                    </p>
-                  </div>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem
-                  onClick={logout}
-                  className="cursor-pointer text-destructive focus:text-destructive"
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>Sign out</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </SidebarFooter>
-        </Sidebar>
-        <div
-          className={`absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-primary/20 transition-colors ${isCollapsed ? "hidden" : ""}`}
-          onMouseDown={() => {
-            if (isCollapsed) return;
-            setIsResizing(true);
-          }}
-          style={{ zIndex: 50 }}
-        />
-      </div>
-
-      <SidebarInset>
-        {isMobile && (
-          <div className="flex border-b h-14 items-center justify-between bg-background/95 px-2 backdrop-blur supports-[backdrop-filter]:backdrop-blur sticky top-0 z-40">
+        {/* Agent Status */}
+        {sidebarOpen && activeGoals > 0 && (
+          <div className="mx-3 mt-3 p-3 rounded-xl" style={{ background: "oklch(0.65 0.2 265 / 0.1)", border: "1px solid oklch(0.65 0.2 265 / 0.2)" }}>
             <div className="flex items-center gap-2">
-              <SidebarTrigger className="h-9 w-9 rounded-lg bg-background" />
-              <div className="flex items-center gap-3">
-                <div className="flex flex-col gap-1">
-                  <span className="tracking-tight text-foreground">
-                    {activeMenuItem?.label ?? "Menu"}
-                  </span>
-                </div>
-              </div>
+              <div className="pulse-dot pulse-dot-running" />
+              <span className="text-xs font-medium" style={{ color: "oklch(0.75 0.15 265)" }}>
+                Agente attivo — {activeGoals} obiettiv{activeGoals === 1 ? "o" : "i"}
+              </span>
             </div>
           </div>
         )}
-        <main className="flex-1 p-4">{children}</main>
-      </SidebarInset>
-    </>
+
+        {/* Navigation */}
+        <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
+          {navItems.map((item) => {
+            const isActive = location === item.path || (item.path !== "/dashboard" && location.startsWith(item.path));
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.path}
+                onClick={() => navigate(item.path)}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-150 group ${isActive ? "sidebar-item-active" : "text-muted-foreground hover:text-foreground hover:bg-accent"}`}
+              >
+                <Icon className={`w-4.5 h-4.5 shrink-0 ${isActive ? "text-primary" : ""}`} style={{ width: "18px", height: "18px" }} />
+                {sidebarOpen && (
+                  <div className="flex-1 overflow-hidden">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium truncate">{item.label}</span>
+                      {item.path === "/alerts" && unreadCount > 0 && (
+                        <Badge className="text-xs px-1.5 py-0 h-4 ml-1" style={{ background: "oklch(0.55 0.22 25)", color: "white", border: "none" }}>
+                          {unreadCount}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground truncate">{item.description}</div>
+                  </div>
+                )}
+                {!sidebarOpen && item.path === "/alerts" && unreadCount > 0 && (
+                  <div className="absolute right-1 top-1 w-2 h-2 rounded-full" style={{ background: "oklch(0.55 0.22 25)" }} />
+                )}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* User Footer */}
+        <div className="shrink-0 p-3" style={{ borderTop: "1px solid oklch(0.2 0.015 260)" }}>
+          <div className={`flex items-center gap-3 ${sidebarOpen ? "px-2 py-2" : "justify-center py-2"}`}>
+            <Avatar className="w-8 h-8 shrink-0">
+              <AvatarFallback style={{ background: "var(--gradient-primary)", color: "white", fontSize: "12px", fontWeight: "600" }}>
+                {user.name?.charAt(0)?.toUpperCase() ?? "U"}
+              </AvatarFallback>
+            </Avatar>
+            {sidebarOpen && (
+              <>
+                <div className="flex-1 overflow-hidden">
+                  <div className="text-sm font-medium truncate">{user.name ?? "Utente"}</div>
+                  <div className="text-xs text-muted-foreground truncate">{user.email ?? ""}</div>
+                </div>
+                <button
+                  onClick={logout}
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  title="Logout"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Top Bar */}
+        <header className="shrink-0 flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid oklch(0.2 0.015 260)", background: "oklch(0.12 0.015 260 / 0.8)", backdropFilter: "blur(12px)" }}>
+          <div>
+            {navItems.find(i => i.path === location || (i.path !== "/dashboard" && location.startsWith(i.path))) && (
+              <div>
+                <h1 className="text-lg font-semibold text-foreground">
+                  {navItems.find(i => i.path === location || (i.path !== "/dashboard" && location.startsWith(i.path)))?.label}
+                </h1>
+                <p className="text-xs text-muted-foreground">
+                  {navItems.find(i => i.path === location || (i.path !== "/dashboard" && location.startsWith(i.path)))?.description}
+                </p>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            {activeGoals > 0 && (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium agent-running-indicator" style={{ background: "oklch(0.65 0.2 265 / 0.1)", border: "1px solid oklch(0.65 0.2 265 / 0.3)", color: "oklch(0.75 0.15 265)" }}>
+                <div className="pulse-dot pulse-dot-running" />
+                Agente in esecuzione
+              </div>
+            )}
+            <button
+              onClick={() => navigate("/alerts")}
+              className="relative p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            >
+              <Bell className="w-5 h-5" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full text-xs flex items-center justify-center font-bold" style={{ background: "oklch(0.55 0.22 25)", color: "white" }}>
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              )}
+            </button>
+          </div>
+        </header>
+
+        {/* Page Content */}
+        <main className="flex-1 overflow-y-auto p-6">
+          {children}
+        </main>
+      </div>
+    </div>
   );
 }
