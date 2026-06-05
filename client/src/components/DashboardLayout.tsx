@@ -5,26 +5,17 @@ import { Button } from "@/components/ui/button";
 import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
 import {
-  Activity,
-  AlertTriangle,
-  BarChart3,
-  Bell,
-  Bot,
-  ChevronRight,
-  FlaskConical,
-  LogOut,
-  Megaphone,
-  PanelLeft,
-  Plug,
-  Sparkles,
-  Target,
-  Zap,
+  Activity, AlertTriangle, BarChart3, Bell, Bot,
+  ChevronDown, FlaskConical, Instagram, Layout,
+  LogOut, Megaphone, Package2, PanelLeft, Plug,
+  Sparkles, Target, Zap, MessageSquare, Calendar, PenSquare,
 } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
-const navItems = [
+// ─── Nav Config ───────────────────────────────────────────────────────────────
+const META_ADS_ITEMS = [
   { icon: BarChart3, label: "Dashboard", path: "/dashboard", description: "KPI & Performance" },
   { icon: Megaphone, label: "Campagne", path: "/campaigns", description: "Gestione campagne META" },
   { icon: Target, label: "Obiettivi AI", path: "/goals", description: "Goal-based agent" },
@@ -37,6 +28,92 @@ const navItems = [
   { icon: Plug, label: "Connetti Account", path: "/connect", description: "META Business" },
 ];
 
+const GELATO_ITEMS = [
+  { icon: Package2, label: "Bulk Creator", path: "/gelato/maker", description: "Crea prodotti in massa" },
+];
+
+const SOCIAL_ITEMS = [
+  { icon: Calendar, label: "Calendario", path: "/social/calendar", description: "Contenuti settimana" },
+  { icon: MessageSquare, label: "AI Manager", path: "/social/chat", description: "Strategia & chat" },
+  { icon: PenSquare, label: "Crea Post", path: "/social/create", description: "Generator AI" },
+];
+
+// Flat map for header lookup
+const ALL_ITEMS = [...META_ADS_ITEMS, ...GELATO_ITEMS, ...SOCIAL_ITEMS];
+
+// ─── NavGroup component ───────────────────────────────────────────────────────
+function NavGroup({
+  label, icon: GroupIcon, color, items, location, navigate,
+  sidebarOpen, badges, defaultOpen, alerts,
+}: {
+  label: string;
+  icon: React.ElementType;
+  color: string;
+  items: typeof META_ADS_ITEMS;
+  location: string;
+  navigate: (path: string) => void;
+  sidebarOpen: boolean;
+  badges?: Record<string, number>;
+  defaultOpen?: boolean;
+  alerts?: number;
+}) {
+  const isGroupActive = items.some((item) => location === item.path || (item.path !== "/dashboard" && location.startsWith(item.path)));
+  const [open, setOpen] = useState(defaultOpen ?? isGroupActive);
+
+  return (
+    <div className="space-y-0.5">
+      {/* Group header */}
+      {sidebarOpen ? (
+        <button
+          onClick={() => setOpen(!open)}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-left transition-all hover:bg-accent"
+          style={{ color: isGroupActive ? color : "oklch(0.5 0.02 260)" }}
+        >
+          <GroupIcon className="w-4 h-4 shrink-0" style={{ color }} />
+          <span className="text-xs font-semibold uppercase tracking-wider flex-1">{label}</span>
+          <ChevronDown className="w-3.5 h-3.5 transition-transform" style={{ transform: open ? "rotate(0deg)" : "rotate(-90deg)" }} />
+        </button>
+      ) : (
+        <div className="h-px mx-2 my-1" style={{ background: "oklch(0.2 0.015 260)" }} />
+      )}
+
+      {/* Items */}
+      {(open || !sidebarOpen) && (
+        <div className={sidebarOpen ? "space-y-0.5 pl-1" : "space-y-0.5"}>
+          {items.map((item) => {
+            const isActive = location === item.path || (item.path !== "/dashboard" && location.startsWith(item.path));
+            const Icon = item.icon;
+            const badgeCount = badges?.[item.path] ?? 0;
+            return (
+              <button
+                key={item.path}
+                onClick={() => navigate(item.path)}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-150 ${isActive ? "sidebar-item-active" : "text-muted-foreground hover:text-foreground hover:bg-accent"}`}
+              >
+                <Icon className={`shrink-0 ${isActive ? "text-primary" : ""}`} style={{ width: 17, height: 17 }} />
+                {sidebarOpen && (
+                  <div className="flex-1 overflow-hidden">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium truncate">{item.label}</span>
+                      {badgeCount > 0 && (
+                        <Badge className="text-xs px-1.5 py-0 h-4 ml-1" style={{ background: "oklch(0.55 0.22 25)", color: "white", border: "none" }}>
+                          {badgeCount}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground truncate">{item.description}</div>
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Layout ──────────────────────────────────────────────────────────────
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { loading, user, logout } = useAuth();
   const [location, navigate] = useLocation();
@@ -56,17 +133,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6" style={{ background: "var(--gradient-primary)" }}>
               <Bot className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-3xl font-bold text-foreground mb-3">META AI Media Buyer</h1>
+            <h1 className="text-3xl font-bold text-foreground mb-3">DreamBrothers Hub</h1>
             <p className="text-muted-foreground text-sm leading-relaxed">
-              Il tuo agente AI autonomo per la gestione e ottimizzazione delle campagne pubblicitarie META.
+              Il tuo centro di controllo unificato per META Ads, Gelato Print Studio e Social Media Organico.
             </p>
           </div>
-          <Button
-            onClick={() => { window.location.href = getLoginUrl(); }}
-            size="lg"
-            className="w-full font-semibold"
-            style={{ background: "var(--gradient-primary)" }}
-          >
+          <Button onClick={() => { window.location.href = getLoginUrl(); }} size="lg" className="w-full font-semibold" style={{ background: "var(--gradient-primary)" }}>
             Accedi alla piattaforma
           </Button>
         </div>
@@ -75,36 +147,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   const activeGoals = dashboard?.activeGoals ?? 0;
+  const currentItem = ALL_ITEMS.find((i) => i.path === location || (i.path !== "/dashboard" && location.startsWith(i.path)));
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: "oklch(0.1 0.01 260)" }}>
-      {/* Sidebar */}
+      {/* ── Sidebar ─────────────────────────────────────────────────── */}
       <aside
         className="flex flex-col transition-all duration-300 ease-out shrink-0"
-        style={{
-          width: sidebarOpen ? "260px" : "72px",
-          background: "oklch(0.12 0.015 260)",
-          borderRight: "1px solid oklch(0.2 0.015 260)",
-        }}
+        style={{ width: sidebarOpen ? "260px" : "72px", background: "oklch(0.12 0.015 260)", borderRight: "1px solid oklch(0.2 0.015 260)" }}
       >
         {/* Logo */}
         <div className="flex items-center gap-3 px-4 py-5 shrink-0" style={{ borderBottom: "1px solid oklch(0.2 0.015 260)" }}>
-          <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-            style={{ background: "var(--gradient-primary)" }}
-          >
-            <Bot className="w-5 h-5 text-white" />
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--gradient-primary)" }}>
+            <Layout className="w-5 h-5 text-white" />
           </div>
           {sidebarOpen && (
             <div className="overflow-hidden">
-              <div className="font-bold text-sm text-foreground whitespace-nowrap">META AI Agent</div>
-              <div className="text-xs text-muted-foreground whitespace-nowrap">Media Buyer</div>
+              <div className="font-bold text-sm text-foreground whitespace-nowrap">DreamBrothers</div>
+              <div className="text-xs text-muted-foreground whitespace-nowrap">Hub Centrale</div>
             </div>
           )}
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="ml-auto p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-          >
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="ml-auto p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
             <PanelLeft className="w-4 h-4" />
           </button>
         </div>
@@ -122,36 +185,43 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
-          {navItems.map((item) => {
-            const isActive = location === item.path || (item.path !== "/dashboard" && location.startsWith(item.path));
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.path}
-                onClick={() => navigate(item.path)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-150 group ${isActive ? "sidebar-item-active" : "text-muted-foreground hover:text-foreground hover:bg-accent"}`}
-              >
-                <Icon className={`w-4.5 h-4.5 shrink-0 ${isActive ? "text-primary" : ""}`} style={{ width: "18px", height: "18px" }} />
-                {sidebarOpen && (
-                  <div className="flex-1 overflow-hidden">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium truncate">{item.label}</span>
-                      {item.path === "/alerts" && unreadCount > 0 && (
-                        <Badge className="text-xs px-1.5 py-0 h-4 ml-1" style={{ background: "oklch(0.55 0.22 25)", color: "white", border: "none" }}>
-                          {unreadCount}
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="text-xs text-muted-foreground truncate">{item.description}</div>
-                  </div>
-                )}
-                {!sidebarOpen && item.path === "/alerts" && unreadCount > 0 && (
-                  <div className="absolute right-1 top-1 w-2 h-2 rounded-full" style={{ background: "oklch(0.55 0.22 25)" }} />
-                )}
-              </button>
-            );
-          })}
+        <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-3">
+          {/* META ADS */}
+          <NavGroup
+            label="META Ads"
+            icon={Megaphone}
+            color="oklch(0.65 0.2 265)"
+            items={META_ADS_ITEMS}
+            location={location}
+            navigate={navigate}
+            sidebarOpen={sidebarOpen}
+            badges={{ "/alerts": unreadCount }}
+            defaultOpen={true}
+          />
+
+          {/* Gelato */}
+          <NavGroup
+            label="Gelato Print"
+            icon={Package2}
+            color="oklch(0.65 0.2 310)"
+            items={GELATO_ITEMS}
+            location={location}
+            navigate={navigate}
+            sidebarOpen={sidebarOpen}
+            defaultOpen={false}
+          />
+
+          {/* Social Media */}
+          <NavGroup
+            label="Social Organico"
+            icon={Instagram}
+            color="oklch(0.65 0.2 340)"
+            items={SOCIAL_ITEMS}
+            location={location}
+            navigate={navigate}
+            sidebarOpen={sidebarOpen}
+            defaultOpen={false}
+          />
         </nav>
 
         {/* User Footer */}
@@ -168,11 +238,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <div className="text-sm font-medium truncate">{user.name ?? "Utente"}</div>
                   <div className="text-xs text-muted-foreground truncate">{user.email ?? ""}</div>
                 </div>
-                <button
-                  onClick={logout}
-                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                  title="Logout"
-                >
+                <button onClick={logout} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" title="Logout">
                   <LogOut className="w-4 h-4" />
                 </button>
               </>
@@ -181,19 +247,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
 
-      {/* Main Content */}
+      {/* ── Main Content ─────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top Bar */}
         <header className="shrink-0 flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid oklch(0.2 0.015 260)", background: "oklch(0.12 0.015 260 / 0.8)", backdropFilter: "blur(12px)" }}>
           <div>
-            {navItems.find(i => i.path === location || (i.path !== "/dashboard" && location.startsWith(i.path))) && (
+            {currentItem && (
               <div>
-                <h1 className="text-lg font-semibold text-foreground">
-                  {navItems.find(i => i.path === location || (i.path !== "/dashboard" && location.startsWith(i.path)))?.label}
-                </h1>
-                <p className="text-xs text-muted-foreground">
-                  {navItems.find(i => i.path === location || (i.path !== "/dashboard" && location.startsWith(i.path)))?.description}
-                </p>
+                <h1 className="text-lg font-semibold text-foreground">{currentItem.label}</h1>
+                <p className="text-xs text-muted-foreground">{currentItem.description}</p>
               </div>
             )}
           </div>
@@ -201,13 +263,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {activeGoals > 0 && (
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium agent-running-indicator" style={{ background: "oklch(0.65 0.2 265 / 0.1)", border: "1px solid oklch(0.65 0.2 265 / 0.3)", color: "oklch(0.75 0.15 265)" }}>
                 <div className="pulse-dot pulse-dot-running" />
-                Agente in esecuzione
+                Agente META in esecuzione
               </div>
             )}
-            <button
-              onClick={() => navigate("/alerts")}
-              className="relative p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-            >
+            <button onClick={() => navigate("/alerts")} className="relative p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
               <Bell className="w-5 h-5" />
               {unreadCount > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full text-xs flex items-center justify-center font-bold" style={{ background: "oklch(0.55 0.22 25)", color: "white" }}>
@@ -219,9 +278,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-y-auto p-6">
-          {children}
-        </main>
+        <main className="flex-1 overflow-y-auto p-6">{children}</main>
       </div>
     </div>
   );

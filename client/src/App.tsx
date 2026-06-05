@@ -16,61 +16,44 @@ import AgentLogs from "./pages/AgentLogs";
 import AlertsPage from "./pages/AlertsPage";
 import ConnectAccount from "./pages/ConnectAccount";
 import Home from "./pages/Home";
+import GelatoMaker from "./pages/GelatoMaker";
+import SocialMedia from "./pages/SocialMedia";
+
+function withLayout(Component: React.ComponentType) {
+  return (
+    <DashboardLayout>
+      <Component />
+    </DashboardLayout>
+  );
+}
 
 function AppRouter() {
   return (
     <Switch>
       <Route path="/" component={Home} />
-      <Route path="/dashboard">
-        <DashboardLayout>
-          <Dashboard />
-        </DashboardLayout>
-      </Route>
-      <Route path="/campaigns">
-        <DashboardLayout>
-          <Campaigns />
-        </DashboardLayout>
-      </Route>
-      <Route path="/audit">
-        <DashboardLayout>
-          <AuditAI />
-        </DashboardLayout>
-      </Route>
-      <Route path="/copy">
-        <DashboardLayout>
-          <CopyGenerator />
-        </DashboardLayout>
-      </Route>
-      <Route path="/goals">
-        <DashboardLayout>
-          <Goals />
-        </DashboardLayout>
-      </Route>
-      <Route path="/ab-testing">
-        <DashboardLayout>
-          <ABTesting />
-        </DashboardLayout>
-      </Route>
-      <Route path="/tracking">
-        <DashboardLayout>
-          <TrackingSetup />
-        </DashboardLayout>
-      </Route>
-      <Route path="/logs">
-        <DashboardLayout>
-          <AgentLogs />
-        </DashboardLayout>
-      </Route>
-      <Route path="/alerts">
-        <DashboardLayout>
-          <AlertsPage />
-        </DashboardLayout>
-      </Route>
-      <Route path="/connect">
-        <DashboardLayout>
-          <ConnectAccount />
-        </DashboardLayout>
-      </Route>
+
+      {/* META ADS */}
+      <Route path="/dashboard">{withLayout(Dashboard)}</Route>
+      <Route path="/campaigns">{withLayout(Campaigns)}</Route>
+      <Route path="/audit">{withLayout(AuditAI)}</Route>
+      <Route path="/copy">{withLayout(CopyGenerator)}</Route>
+      <Route path="/goals">{withLayout(Goals)}</Route>
+      <Route path="/ab-testing">{withLayout(ABTesting)}</Route>
+      <Route path="/tracking">{withLayout(TrackingSetup)}</Route>
+      <Route path="/logs">{withLayout(AgentLogs)}</Route>
+      <Route path="/alerts">{withLayout(AlertsPage)}</Route>
+      <Route path="/connect">{withLayout(ConnectAccount)}</Route>
+
+      {/* GELATO */}
+      <Route path="/gelato/maker">{withLayout(GelatoMaker)}</Route>
+      <Route path="/gelato">{() => { window.location.replace("/gelato/maker"); return null; }}</Route>
+
+      {/* SOCIAL MEDIA */}
+      <Route path="/social/calendar">{withLayout(SocialMedia)}</Route>
+      <Route path="/social/chat">{withLayout(SocialMedia)}</Route>
+      <Route path="/social/create">{withLayout(SocialMedia)}</Route>
+      <Route path="/social">{() => { window.location.replace("/social/calendar"); return null; }}</Route>
+
       <Route component={NotFound} />
     </Switch>
   );
