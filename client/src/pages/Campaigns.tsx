@@ -1,5 +1,5 @@
 import { trpc } from "@/lib/trpc";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,6 +32,22 @@ export default function Campaigns() {
     publishToMeta: false,
     notes: "",
   });
+
+  const [creatives, setCreatives] = useState<{ name: string; thumb: string; view: string }[]>([]);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("db_campaign_assets");
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr) && arr.length) {
+          setCreatives(arr);
+          setOpen(true);
+          setForm(f => ({ ...f, notes: "Creative: " + arr.map((a: { name: string }) => a.name).join(", ") }));
+        }
+        localStorage.removeItem("db_campaign_assets");
+      }
+    } catch {}
+  }, []);
 
   const createCampaign = trpc.campaigns.create.useMutation({
     onSuccess: () => { utils.campaigns.list.invalidate(); setOpen(false); toast.success("Campagna creata!"); },
@@ -91,6 +107,14 @@ export default function Campaigns() {
                 </DialogTitle>
               </DialogHeader>
               <div className="space-y-4 mt-2">
+                {creatives.length > 0 && (
+                  <div className="rounded-xl p-3" style={{ background: "oklch(0.16 0.015 260)", border: "1px solid oklch(0.25 0.02 260)" }}>
+                    <div className="text-xs text-muted-foreground mb-2">Creative selezionate ({creatives.length})</div>
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                      {creatives.map((c2, i) => <img key={i} src={c2.thumb} alt={c2.name} className="w-14 h-14 rounded-lg object-cover shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0.3"; }} />)}
+                    </div>
+                  </div>
+                )}
                 <div>
                   <Label className="text-sm text-muted-foreground mb-1.5 block">Account META *</Label>
                   <Select value={form.metaAccountId} onValueChange={(v) => setForm(f => ({ ...f, metaAccountId: v }))}>

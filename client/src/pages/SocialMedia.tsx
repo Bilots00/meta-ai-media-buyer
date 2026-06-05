@@ -260,9 +260,15 @@ function CreateView() {
   const [hashtags, setHashtags] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [asset, setAsset] = useState<{ name: string; thumb: string; view: string; type: string } | null>(null);
+  const [assets, setAssets] = useState<{ name: string; thumb: string; view: string; type: string }[]>([]);
 
   useEffect(() => {
     try {
+      const multi = localStorage.getItem("db_social_assets");
+      if (multi) {
+        const arr = JSON.parse(multi);
+        if (Array.isArray(arr) && arr.length) { setAssets(arr); setPostType("carousel"); return; }
+      }
       const raw = localStorage.getItem("db_social_asset");
       if (raw) {
         const a = JSON.parse(raw);
@@ -325,7 +331,22 @@ function CreateView() {
         </div>
 
         {/* Media: asset da My Assets oppure upload */}
-        {asset ? (
+        {assets.length > 0 ? (
+          <div className="rounded-2xl p-4 space-y-2" style={{ background: "oklch(0.14 0.015 260)", border: "1px solid oklch(0.2 0.015 260)" }}>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium">Carosello · {assets.length} immagini</p>
+              <Button variant="ghost" size="sm" onClick={() => { localStorage.removeItem("db_social_assets"); setAssets([]); }}>Rimuovi</Button>
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {assets.map((a, i) => (
+                <div key={i} className="relative shrink-0">
+                  <img src={a.thumb} alt={a.name} className="w-20 h-20 rounded-lg object-cover" onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0.3"; }} />
+                  <span className="absolute top-1 left-1 text-[10px] px-1.5 rounded bg-black/60 text-white">{i + 1}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : asset ? (
           <div className="rounded-2xl p-4 flex items-center gap-3" style={{ background: "oklch(0.14 0.015 260)", border: "1px solid oklch(0.2 0.015 260)" }}>
             <img src={asset.thumb} alt={asset.name} className="w-16 h-16 rounded-lg object-cover" onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0.3"; }} />
             <div className="flex-1 min-w-0">

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { Image as ImageIcon, Video, FolderOpen, Link2, Search, RefreshCw, ExternalLink, Send, Filter, Sparkles, Grid3x3, List, AlertCircle } from "lucide-react";
+import { Image as ImageIcon, Video, FolderOpen, Link2, Search, RefreshCw, ExternalLink, Send, Filter, Sparkles, Grid3x3, List, AlertCircle, Megaphone, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -53,33 +53,37 @@ async function fetchDriveFiles(folderId: string, apiKey: string, depth = 0): Pro
   return all;
 }
 
-function AssetCard({ file, view, onCreatePost }: { file: DriveFile; view: ViewMode; onCreatePost: (f: DriveFile) => void }) {
+function AssetCard({ file, view, onCreatePost, onCreateCampaign, selected, onToggleSelect }: { file: DriveFile; view: ViewMode; onCreatePost: (f: DriveFile) => void; onCreateCampaign: (f: DriveFile) => void; selected: boolean; onToggleSelect: (f: DriveFile) => void }) {
   const thumb = getThumbnailUrl(file.id);
   const isVid = isVideo(file.mimeType);
   if (view === "list") {
     return (
-      <div className="flex items-center gap-4 p-3 rounded-xl cursor-pointer hover:opacity-90" style={{ background: "oklch(0.14 0.015 260)", border: "1px solid oklch(0.2 0.015 260)" }} onClick={() => window.open(getViewUrl(file.id), "_blank")}>
+      <div className="flex items-center gap-4 p-3 rounded-xl cursor-pointer hover:opacity-90" style={{ background: "oklch(0.14 0.015 260)", border: selected ? "1px solid oklch(0.65 0.2 265)" : "1px solid oklch(0.2 0.015 260)" }} onClick={() => window.open(getViewUrl(file.id), "_blank")}>
+        <input type="checkbox" checked={selected} onChange={() => onToggleSelect(file)} onClick={(e) => e.stopPropagation()} className="w-4 h-4 shrink-0 cursor-pointer" style={{ accentColor: "#7c6cf2" }} />
         <div className="w-12 h-12 rounded-lg overflow-hidden shrink-0 relative" style={{ background: "oklch(0.16 0.015 260)" }}>
           {(isImage(file.mimeType) || isVid) && <img src={thumb} alt={file.name} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />}
           {isVid && <div className="absolute inset-0 flex items-center justify-center bg-black/30"><Video className="w-4 h-4 text-white" /></div>}
         </div>
         <div className="flex-1 min-w-0"><p className="text-sm font-medium truncate">{file.name}</p><p className="text-xs text-muted-foreground">{formatDate(file.createdTime)}</p></div>
         <button onClick={(e) => { e.stopPropagation(); onCreatePost(file); }} className="text-xs px-2 py-1 rounded-md font-medium flex items-center gap-1 shrink-0" style={{ background: "oklch(0.65 0.2 265/0.18)", color: "oklch(0.8 0.1 265)" }} title="Crea post social"><Send className="w-3 h-3" />Post</button>
+        <button onClick={(e) => { e.stopPropagation(); onCreateCampaign(file); }} className="text-xs px-2 py-1 rounded-md font-medium flex items-center gap-1 shrink-0" style={{ background: "oklch(0.62 0.2 150/0.18)", color: "oklch(0.78 0.14 150)" }} title="Crea campagna"><Megaphone className="w-3 h-3" />Campagna</button>
         <Badge variant="outline" className="text-xs shrink-0">{isVid ? "Video" : isImage(file.mimeType) ? "Immagine" : "File"}</Badge>
       </div>
     );
   }
   return (
-    <div className="rounded-2xl overflow-hidden cursor-pointer hover:scale-[1.02] transition-all" style={{ background: "oklch(0.14 0.015 260)", border: "1px solid oklch(0.2 0.015 260)" }} onClick={() => window.open(getViewUrl(file.id), "_blank")}>
+    <div className="rounded-2xl overflow-hidden cursor-pointer hover:scale-[1.02] transition-all" style={{ background: "oklch(0.14 0.015 260)", border: selected ? "2px solid oklch(0.65 0.2 265)" : "1px solid oklch(0.2 0.015 260)" }} onClick={() => window.open(getViewUrl(file.id), "_blank")}>
       <div className="aspect-square relative overflow-hidden" style={{ background: "oklch(0.12 0.01 260)" }}>
+        <input type="checkbox" checked={selected} onChange={() => onToggleSelect(file)} onClick={(e) => e.stopPropagation()} className="absolute top-2 left-2 w-5 h-5 z-10 cursor-pointer" style={{ accentColor: "#7c6cf2" }} />
         {(isImage(file.mimeType) || isVid) && <img src={thumb} alt={file.name} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />}
         {isVid && <div className="absolute inset-0 flex items-center justify-center bg-black/40"><div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center"><Video className="w-5 h-5 text-white" /></div></div>}
       </div>
       <div className="p-3">
         <p className="text-xs font-medium truncate">{file.name}</p>
-        <div className="flex items-center justify-between mt-1">
-          <p className="text-xs text-muted-foreground">{formatDate(file.createdTime)}</p>
-          <button onClick={(e) => { e.stopPropagation(); onCreatePost(file); }} className="text-xs px-2 py-0.5 rounded-md font-medium flex items-center gap-1" style={{ background: "oklch(0.65 0.2 265/0.18)", color: "oklch(0.8 0.1 265)" }} title="Crea post social"><Send className="w-3 h-3" />Crea post</button>
+        <p className="text-xs text-muted-foreground mt-0.5">{formatDate(file.createdTime)}</p>
+        <div className="flex items-center gap-1.5 mt-2">
+          <button onClick={(e) => { e.stopPropagation(); onCreatePost(file); }} className="text-xs px-2 py-0.5 rounded-md font-medium flex items-center gap-1" style={{ background: "oklch(0.65 0.2 265/0.18)", color: "oklch(0.8 0.1 265)" }} title="Crea post social"><Send className="w-3 h-3" />Post</button>
+          <button onClick={(e) => { e.stopPropagation(); onCreateCampaign(file); }} className="text-xs px-2 py-0.5 rounded-md font-medium flex items-center gap-1" style={{ background: "oklch(0.62 0.2 150/0.18)", color: "oklch(0.78 0.14 150)" }} title="Crea campagna"><Megaphone className="w-3 h-3" />Campagna</button>
         </div>
       </div>
     </div>
@@ -105,6 +109,22 @@ export default function AssetsLibrary() {
 
   const handleCreatePost = (f: DriveFile) => {
     localStorage.setItem("db_social_asset", JSON.stringify({ id: f.id, name: f.name, mimeType: f.mimeType, thumb: getThumbnailUrl(f.id), view: getViewUrl(f.id), type: isVideo(f.mimeType) ? "video" : "image" }));
+    navigate("/social/create");
+  };
+
+  const [selected, setSelected] = useState<Record<string, DriveFile>>({});
+  const selectedList = Object.values(selected);
+  const toggleSelect = (f: DriveFile) => setSelected(prev => { const n = { ...prev }; if (n[f.id]) delete n[f.id]; else n[f.id] = f; return n; });
+  const assetPayload = (f: DriveFile) => ({ id: f.id, name: f.name, mimeType: f.mimeType, thumb: getThumbnailUrl(f.id), view: getViewUrl(f.id), type: isVideo(f.mimeType) ? "video" : "image" });
+  const handleCreateCampaign = (assets: DriveFile[]) => {
+    if (!assets.length) return;
+    localStorage.setItem("db_campaign_assets", JSON.stringify(assets.map(assetPayload)));
+    navigate("/campaigns");
+  };
+  const handleCreateCarousel = (assets: DriveFile[]) => {
+    if (!assets.length) return;
+    localStorage.removeItem("db_social_asset");
+    localStorage.setItem("db_social_assets", JSON.stringify(assets.map(assetPayload)));
     navigate("/social/create");
   };
 
@@ -179,8 +199,16 @@ export default function AssetsLibrary() {
       {!loading && connected && (filtered.length === 0
         ? <div className="text-center py-16"><FolderOpen className="w-12 h-12 mx-auto mb-4 text-muted-foreground" /><p className="text-muted-foreground">{files.length === 0 ? "Cartella vuota — avvia il workflow n8n" : "Nessun risultato"}</p></div>
         : view === "grid"
-          ? <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">{filtered.map(f => <AssetCard key={f.id} file={f} view="grid" onCreatePost={handleCreatePost} />)}</div>
-          : <div className="space-y-2">{filtered.map(f => <AssetCard key={f.id} file={f} view="list" onCreatePost={handleCreatePost} />)}</div>
+          ? <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">{filtered.map(f => <AssetCard key={f.id} file={f} view="grid" onCreatePost={handleCreatePost} onCreateCampaign={(x) => handleCreateCampaign([x])} selected={!!selected[f.id]} onToggleSelect={toggleSelect} />)}</div>
+          : <div className="space-y-2">{filtered.map(f => <AssetCard key={f.id} file={f} view="list" onCreatePost={handleCreatePost} onCreateCampaign={(x) => handleCreateCampaign([x])} selected={!!selected[f.id]} onToggleSelect={toggleSelect} />)}</div>
+      )}
+      {selectedList.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl shadow-xl" style={{ background: "oklch(0.16 0.02 260)", border: "1px solid oklch(0.3 0.04 265)" }}>
+          <span className="text-sm font-medium">{selectedList.length} selezionate</span>
+          <button onClick={() => handleCreateCarousel(selectedList.filter(f => isImage(f.mimeType)))} className="text-xs px-3 py-1.5 rounded-lg font-medium flex items-center gap-1.5 text-white" style={{ background: "linear-gradient(135deg, oklch(0.6 0.2 320), oklch(0.55 0.2 340))" }}><Layers className="w-3.5 h-3.5" />Crea carosello</button>
+          <button onClick={() => handleCreateCampaign(selectedList)} className="text-xs px-3 py-1.5 rounded-lg font-medium flex items-center gap-1.5 text-white" style={{ background: "linear-gradient(135deg, oklch(0.6 0.2 150), oklch(0.5 0.2 160))" }}><Megaphone className="w-3.5 h-3.5" />Crea campagna ({selectedList.length} ads)</button>
+          <button onClick={() => setSelected({})} className="text-xs px-2 py-1.5 rounded-lg text-muted-foreground">Deseleziona</button>
+        </div>
       )}
     </div>
   );
