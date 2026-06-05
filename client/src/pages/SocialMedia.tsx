@@ -195,6 +195,13 @@ function ChatView() {
     setMessages((prev) => [...prev, { role: "ai", content: responses[key], timestamp: new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }) }]);
   };
 
+  useEffect(() => {
+    try {
+      const brief = localStorage.getItem("db_remix_brief");
+      if (brief) { localStorage.removeItem("db_remix_brief"); setInput(brief); }
+    } catch {}
+  }, []);
+
   return (
     <div className="flex flex-col h-full" style={{ height: "calc(100vh - 240px)", minHeight: "500px" }}>
       {/* Suggestions */}
