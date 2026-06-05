@@ -9,6 +9,7 @@ import {
   ChevronDown, FlaskConical, Instagram, Layout,
   LogOut, Megaphone, Package2, PanelLeft, Plug,
   Sparkles, Target, Zap, MessageSquare, Calendar, PenSquare,
+  Library, Images,
 } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
@@ -38,8 +39,12 @@ const SOCIAL_ITEMS = [
   { icon: PenSquare, label: "Crea Post", path: "/social/create", description: "Generator AI" },
 ];
 
+const LIBRARY_ITEMS = [
+  { icon: Images, label: "My Assets", path: "/meta/library/assets", description: "Creative generate (n8n / Drive)" },
+];
+
 // Flat map for header lookup
-const ALL_ITEMS = [...META_ADS_ITEMS, ...GELATO_ITEMS, ...SOCIAL_ITEMS];
+const ALL_ITEMS = [...META_ADS_ITEMS, ...GELATO_ITEMS, ...SOCIAL_ITEMS, ...LIBRARY_ITEMS];
 
 // ─── NavGroup component ───────────────────────────────────────────────────────
 function NavGroup({
@@ -217,6 +222,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             icon={Instagram}
             color="oklch(0.65 0.2 340)"
             items={SOCIAL_ITEMS}
+            location={location}
+            navigate={navigate}
+            sidebarOpen={sidebarOpen}
+            defaultOpen={false}
+          />
+
+          {/* Library */}
+          <NavGroup
+            label="Library"
+            icon={Library}
+            color="oklch(0.72 0.18 75)"
+            items={LIBRARY_ITEMS}
             location={location}
             navigate={navigate}
             sidebarOpen={sidebarOpen}
