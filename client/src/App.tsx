@@ -21,6 +21,7 @@ import SocialMedia from "./pages/SocialMedia";
 import Login from "./pages/Login";
 import AssetsLibrary from "./pages/AssetsLibrary";
 import Inspiration from "./pages/Inspiration";
+import Settings from "./pages/Settings";
 
 function withLayout(Component: React.ComponentType) {
   return (
@@ -47,6 +48,8 @@ function AppRouter() {
       <Route path="/logs">{withLayout(AgentLogs)}</Route>
       <Route path="/alerts">{withLayout(AlertsPage)}</Route>
       <Route path="/connect">{withLayout(ConnectAccount)}</Route>
+      <Route path="/settings">{withLayout(Settings)}</Route>
+      <Route path="/settings/brand">{withLayout(Settings)}</Route>
 
       {/* LIBRARY */}
       <Route path="/meta/library/inspiration">{withLayout(Inspiration)}</Route>
