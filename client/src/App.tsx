@@ -18,10 +18,10 @@ import ConnectAccount from "./pages/ConnectAccount";
 import Home from "./pages/Home";
 import GelatoMaker from "./pages/GelatoMaker";
 import SocialMedia from "./pages/SocialMedia";
-import Login from "./pages/Login";
 import AssetsLibrary from "./pages/AssetsLibrary";
 import Inspiration from "./pages/Inspiration";
 import Settings from "./pages/Settings";
+import Login from "./pages/Login";
 
 function withLayout(Component: React.ComponentType) {
   return (
@@ -35,7 +35,6 @@ function AppRouter() {
   return (
     <Switch>
       <Route path="/" component={Home} />
-      <Route path="/login" component={Login} />
 
       {/* META ADS */}
       <Route path="/dashboard">{withLayout(Dashboard)}</Route>
@@ -48,14 +47,10 @@ function AppRouter() {
       <Route path="/logs">{withLayout(AgentLogs)}</Route>
       <Route path="/alerts">{withLayout(AlertsPage)}</Route>
       <Route path="/connect">{withLayout(ConnectAccount)}</Route>
+
+      {/* SETTINGS */}
       <Route path="/settings">{withLayout(Settings)}</Route>
       <Route path="/settings/brand">{withLayout(Settings)}</Route>
-
-      {/* LIBRARY */}
-      <Route path="/meta/library/inspiration">{withLayout(Inspiration)}</Route>
-      <Route path="/social/library/inspiration">{withLayout(Inspiration)}</Route>
-      <Route path="/meta/library/assets">{withLayout(AssetsLibrary)}</Route>
-      <Route path="/social/library/assets">{withLayout(AssetsLibrary)}</Route>
 
       {/* GELATO */}
       <Route path="/gelato/maker">{withLayout(GelatoMaker)}</Route>
@@ -67,6 +62,12 @@ function AppRouter() {
       <Route path="/social/create">{withLayout(SocialMedia)}</Route>
       <Route path="/social">{() => { window.location.replace("/social/calendar"); return null; }}</Route>
 
+      {/* META LIBRARY */}
+      <Route path="/meta/library/inspiration">{withLayout(Inspiration)}</Route>
+      <Route path="/meta/library/assets">{withLayout(AssetsLibrary)}</Route>
+      {/* SOCIAL LIBRARY */}
+      <Route path="/social/library/inspiration">{withLayout(Inspiration)}</Route>
+      <Route path="/social/library/assets">{withLayout(AssetsLibrary)}</Route>
       <Route component={NotFound} />
     </Switch>
   );
