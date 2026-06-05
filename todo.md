@@ -81,3 +81,16 @@
 - [x] Test agent.test.ts (11 test: auth, campaigns, goals, alerts, copy, logs, kpi)
 - [x] 12/12 test passano
 - [x] Zero errori TypeScript
+
+## Creative Engine DreamBrothers — Automazione post-Gelato
+
+- [ ] Schema DB: tabelle brandKit, creativeJobs, generatedAssets, googleDriveConfig
+- [ ] Brand Kit DreamBrothers configurato (palette #0075E3/#E63946/#001E44, gradiente, font Nexa Script + Montserrat ExtraBold Italic + Poppins Regular)
+- [ ] Endpoint webhook pubblico /api/webhooks/gelato-product-created
+- [ ] Pipeline generazione mockup ambientati (wall art, abbigliamento)
+- [ ] Pipeline generazione creative UGC-style per META (3 varianti)
+- [ ] Generatore copy DreamBrothers (Big Idea, monologo interno, dettaglio specifico, Milton Model)
+- [ ] Integrazione upload Google Drive (OAuth + cartelle organizzate per prodotto)
+- [ ] Pagina dashboard Creative Engine con stato job e anteprime
+- [ ] Codice aggiornato per Cloudflare Worker con call al webhook Manus
+- [ ] Guida step-by-step setup Google Drive OAuth e collegamento sistemi
