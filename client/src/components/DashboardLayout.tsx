@@ -9,7 +9,7 @@ import {
   ChevronDown, FlaskConical, Instagram, Layout,
   LogOut, Megaphone, Package2, PanelLeft, Plug,
   Sparkles, Target, Zap, MessageSquare, Calendar, PenSquare,
-  Library, Images, Lightbulb,
+  Library, Images, Lightbulb, Settings as SettingsIcon,
 } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
@@ -256,8 +256,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <div className="text-sm font-medium truncate">{user.name ?? "Utente"}</div>
                   <div className="text-xs text-muted-foreground truncate">{user.email ?? ""}</div>
                 </div>
-                <button onClick={logout} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" title="Logout">
-                  <LogOut className="w-4 h-4" />
+                <button onClick={() => navigate("/settings")} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" title="Impostazioni">
+                  <SettingsIcon className="w-4 h-4" />
                 </button>
               </>
             )}
