@@ -18,6 +18,8 @@ import ConnectAccount from "./pages/ConnectAccount";
 import Home from "./pages/Home";
 import GelatoMaker from "./pages/GelatoMaker";
 import SocialMedia from "./pages/SocialMedia";
+import Login from "./pages/Login";
+import AssetsLibrary from "./pages/AssetsLibrary";
 
 function withLayout(Component: React.ComponentType) {
   return (
@@ -31,6 +33,7 @@ function AppRouter() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/login" component={Login} />
 
       {/* META ADS */}
       <Route path="/dashboard">{withLayout(Dashboard)}</Route>
@@ -43,6 +46,10 @@ function AppRouter() {
       <Route path="/logs">{withLayout(AgentLogs)}</Route>
       <Route path="/alerts">{withLayout(AlertsPage)}</Route>
       <Route path="/connect">{withLayout(ConnectAccount)}</Route>
+
+      {/* LIBRARY */}
+      <Route path="/meta/library/assets">{withLayout(AssetsLibrary)}</Route>
+      <Route path="/social/library/assets">{withLayout(AssetsLibrary)}</Route>
 
       {/* GELATO */}
       <Route path="/gelato/maker">{withLayout(GelatoMaker)}</Route>
