@@ -22,17 +22,38 @@ function isVideo(m: string) { return m.startsWith("video/"); }
 function isImage(m: string) { return m.startsWith("image/"); }
 function formatDate(iso: string) { return new Date(iso).toLocaleDateString("it-IT", { day: "2-digit", month: "short", year: "numeric" }); }
 
-async function fetchDriveFiles(folderId: string, apiKey: string): Promise<DriveFile[]> {
+const FOLDER_MIME = "application/vnd.google-apps.folder";
+
+async function listFolder(folderId: string, apiKey: string): Promise<DriveFile[]> {
   const q = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
   const fields = encodeURIComponent("files(id,name,mimeType,createdTime,size,thumbnailLink)");
-  const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=${fields}&orderBy=createdTime+desc&pageSize=100&key=${apiKey}`;
+  const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=${fields}&orderBy=createdTime+desc&pageSize=1000&key=${apiKey}`;
   const res = await fetch(url);
   if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err?.error?.message || `Errore ${res.status}`); }
   const data = await res.json();
   return data.files || [];
 }
 
-function AssetCard({ file, view }: { file: DriveFile; view: ViewMode }) {
+// Recursively walk subfolders so creative dentro alle sotto-cartelle compaiano tutte
+async function fetchDriveFiles(folderId: string, apiKey: string, depth = 0): Promise<DriveFile[]> {
+  const items = await listFolder(folderId, apiKey);
+  const files: DriveFile[] = [];
+  const subfolders: DriveFile[] = [];
+  for (const it of items) {
+    if (it.mimeType === FOLDER_MIME) subfolders.push(it);
+    else files.push(it);
+  }
+  let all: DriveFile[] = [...files];
+  if (depth < 5) {
+    for (const sf of subfolders) {
+      try { const sub = await fetchDriveFiles(sf.id, apiKey, depth + 1); all = all.concat(sub); } catch {}
+    }
+  }
+  all.sort((a, b) => (b.createdTime || "").localeCompare(a.createdTime || ""));
+  return all;
+}
+
+function AssetCard({ file, view, onCreatePost }: { file: DriveFile; view: ViewMode; onCreatePost: (f: DriveFile) => void }) {
   const thumb = getThumbnailUrl(file.id);
   const isVid = isVideo(file.mimeType);
   if (view === "list") {
@@ -43,6 +64,7 @@ function AssetCard({ file, view }: { file: DriveFile; view: ViewMode }) {
           {isVid && <div className="absolute inset-0 flex items-center justify-center bg-black/30"><Video className="w-4 h-4 text-white" /></div>}
         </div>
         <div className="flex-1 min-w-0"><p className="text-sm font-medium truncate">{file.name}</p><p className="text-xs text-muted-foreground">{formatDate(file.createdTime)}</p></div>
+        <button onClick={(e) => { e.stopPropagation(); onCreatePost(file); }} className="text-xs px-2 py-1 rounded-md font-medium flex items-center gap-1 shrink-0" style={{ background: "oklch(0.65 0.2 265/0.18)", color: "oklch(0.8 0.1 265)" }} title="Crea post social"><Send className="w-3 h-3" />Post</button>
         <Badge variant="outline" className="text-xs shrink-0">{isVid ? "Video" : isImage(file.mimeType) ? "Immagine" : "File"}</Badge>
       </div>
     );
@@ -53,13 +75,19 @@ function AssetCard({ file, view }: { file: DriveFile; view: ViewMode }) {
         {(isImage(file.mimeType) || isVid) && <img src={thumb} alt={file.name} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />}
         {isVid && <div className="absolute inset-0 flex items-center justify-center bg-black/40"><div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center"><Video className="w-5 h-5 text-white" /></div></div>}
       </div>
-      <div className="p-3"><p className="text-xs font-medium truncate">{file.name}</p><p className="text-xs text-muted-foreground mt-0.5">{formatDate(file.createdTime)}</p></div>
+      <div className="p-3">
+        <p className="text-xs font-medium truncate">{file.name}</p>
+        <div className="flex items-center justify-between mt-1">
+          <p className="text-xs text-muted-foreground">{formatDate(file.createdTime)}</p>
+          <button onClick={(e) => { e.stopPropagation(); onCreatePost(file); }} className="text-xs px-2 py-0.5 rounded-md font-medium flex items-center gap-1" style={{ background: "oklch(0.65 0.2 265/0.18)", color: "oklch(0.8 0.1 265)" }} title="Crea post social"><Send className="w-3 h-3" />Crea post</button>
+        </div>
+      </div>
     </div>
   );
 }
 
 export default function AssetsLibrary() {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const isMetaLib = location.includes("/meta/");
   const LS_FOLDER = "assets_library_folder_id";
   const LS_APIKEY = "assets_library_api_key";
@@ -74,6 +102,11 @@ export default function AssetsLibrary() {
   const [connected, setConnected] = useState(false);
   const [folderInput, setFolderInput] = useState("");
   const [apiKeyInput, setApiKeyInput] = useState("");
+
+  const handleCreatePost = (f: DriveFile) => {
+    localStorage.setItem("db_social_asset", JSON.stringify({ id: f.id, name: f.name, mimeType: f.mimeType, thumb: getThumbnailUrl(f.id), view: getViewUrl(f.id), type: isVideo(f.mimeType) ? "video" : "image" }));
+    navigate("/social/create");
+  };
 
   const loadFiles = async (fId: string, aKey: string) => {
     setLoading(true); setError("");
@@ -146,8 +179,8 @@ export default function AssetsLibrary() {
       {!loading && connected && (filtered.length === 0
         ? <div className="text-center py-16"><FolderOpen className="w-12 h-12 mx-auto mb-4 text-muted-foreground" /><p className="text-muted-foreground">{files.length === 0 ? "Cartella vuota — avvia il workflow n8n" : "Nessun risultato"}</p></div>
         : view === "grid"
-          ? <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">{filtered.map(f => <AssetCard key={f.id} file={f} view="grid" />)}</div>
-          : <div className="space-y-2">{filtered.map(f => <AssetCard key={f.id} file={f} view="list" />)}</div>
+          ? <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">{filtered.map(f => <AssetCard key={f.id} file={f} view="grid" onCreatePost={handleCreatePost} />)}</div>
+          : <div className="space-y-2">{filtered.map(f => <AssetCard key={f.id} file={f} view="list" onCreatePost={handleCreatePost} />)}</div>
       )}
     </div>
   );

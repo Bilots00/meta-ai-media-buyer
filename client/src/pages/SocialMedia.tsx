@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Calendar, MessageSquare, PenSquare, Instagram, Facebook, Twitter, Youtube, Send, Sparkles, TrendingUp, Clock, Plus, Image as ImageIcon, Hash, Repeat2, BarChart2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -259,6 +259,18 @@ function CreateView() {
   const [caption, setCaption] = useState("");
   const [hashtags, setHashtags] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [asset, setAsset] = useState<{ name: string; thumb: string; view: string; type: string } | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("db_social_asset");
+      if (raw) {
+        const a = JSON.parse(raw);
+        setAsset(a);
+        setPostType(a.type === "video" ? "reel" : "post");
+      }
+    } catch {}
+  }, []);
 
   const handleGenerate = async () => {
     setIsGenerating(true);
@@ -312,12 +324,24 @@ function CreateView() {
           </Button>
         </div>
 
-        {/* Media upload placeholder */}
-        <div className="rounded-2xl border border-dashed p-8 text-center" style={{ borderColor: "oklch(0.22 0.015 260)" }}>
-          <ImageIcon className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground mb-3">Carica immagine o video</p>
-          <Button variant="outline" size="sm">Scegli file</Button>
-        </div>
+        {/* Media: asset da My Assets oppure upload */}
+        {asset ? (
+          <div className="rounded-2xl p-4 flex items-center gap-3" style={{ background: "oklch(0.14 0.015 260)", border: "1px solid oklch(0.2 0.015 260)" }}>
+            <img src={asset.thumb} alt={asset.name} className="w-16 h-16 rounded-lg object-cover" onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0.3"; }} />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{asset.name}</p>
+              <p className="text-xs text-muted-foreground">Da My Assets · {asset.type === "video" ? "Video" : "Immagine"}</p>
+              <a href={asset.view} target="_blank" rel="noreferrer" className="text-xs text-primary">Apri originale</a>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => { localStorage.removeItem("db_social_asset"); setAsset(null); }}>Rimuovi</Button>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed p-8 text-center" style={{ borderColor: "oklch(0.22 0.015 260)" }}>
+            <ImageIcon className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground mb-3">Carica immagine o video</p>
+            <Button variant="outline" size="sm">Scegli file</Button>
+          </div>
+        )}
       </div>
 
       {/* Right: Preview */}
