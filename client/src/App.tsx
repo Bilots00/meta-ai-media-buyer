@@ -20,6 +20,7 @@ import GelatoMaker from "./pages/GelatoMaker";
 import SocialMedia from "./pages/SocialMedia";
 import Login from "./pages/Login";
 import AssetsLibrary from "./pages/AssetsLibrary";
+import Inspiration from "./pages/Inspiration";
 
 function withLayout(Component: React.ComponentType) {
   return (
@@ -48,6 +49,8 @@ function AppRouter() {
       <Route path="/connect">{withLayout(ConnectAccount)}</Route>
 
       {/* LIBRARY */}
+      <Route path="/meta/library/inspiration">{withLayout(Inspiration)}</Route>
+      <Route path="/social/library/inspiration">{withLayout(Inspiration)}</Route>
       <Route path="/meta/library/assets">{withLayout(AssetsLibrary)}</Route>
       <Route path="/social/library/assets">{withLayout(AssetsLibrary)}</Route>
 
