@@ -10,6 +10,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { drizzle } from "drizzle-orm/mysql2";
 import { migrate } from "drizzle-orm/mysql2/migrator";
+import { sql } from "drizzle-orm";
 
 // Auto-migrazione all'avvio: appena DATABASE_URL e' impostata su Railway,
 // crea/aggiorna le tabelle da solo. Niente comandi manuali.
@@ -18,12 +19,25 @@ async function runMigrations() {
     console.log("[Migrate] DATABASE_URL non impostata — salto le migrazioni");
     return;
   }
+  const db = drizzle(process.env.DATABASE_URL);
   try {
-    const db = drizzle(process.env.DATABASE_URL);
     await migrate(db, { migrationsFolder: "./drizzle" });
     console.log("[Migrate] Tabelle create/aggiornate con successo");
   } catch (err) {
     console.warn("[Migrate] Migrazione fallita (il sito resta su):", err);
+  }
+  try {
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS user_settings (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL,
+      settingKey VARCHAR(128) NOT NULL,
+      settingValue TEXT,
+      updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_user_setting (userId, settingKey)
+    )`);
+    console.log("[Migrate] Tabella user_settings pronta");
+  } catch (err) {
+    console.warn("[Migrate] user_settings non creata:", err);
   }
 }
 
