@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import { trpc } from "@/lib/trpc";
 import { Settings as SettingsIcon, Save, Image as ImageIcon, X, LogOut, FileText, Upload } from "lucide-react";
 
 const LS = "db_brand";
@@ -68,8 +69,9 @@ export default function Settings() {
     try { return { ...empty, ...JSON.parse(localStorage.getItem(LS) || "{}") }; } catch { return empty; }
   });
   const [busy, setBusy] = useState(false);
+  const setSetting = trpc.settings.set.useMutation();
   const set = (k: keyof Brand, v: any) => setBrand(b => ({ ...b, [k]: v }));
-  const save = () => { localStorage.setItem(LS, JSON.stringify(brand)); toast.success("Dati del brand salvati"); };
+  const save = () => { const v = JSON.stringify(brand); localStorage.setItem(LS, v); setSetting.mutate({ key: LS, value: v }); toast.success("Dati del brand salvati (sincronizzati)"); };
 
   const onVisuals = async (files: FileList | null) => {
     if (!files) return;

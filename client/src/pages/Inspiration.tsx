@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import { trpc } from "@/lib/trpc";
 
 interface Inspo {
   id: string; url: string; note: string; image: string; format: string; platform: string; createdAt: string;
@@ -58,6 +59,8 @@ function downscale(file: File, maxDim = 900): Promise<string> {
 export default function Inspiration() {
   const [, navigate] = useLocation();
   const [items, setItems] = useState<Inspo[]>(() => load());
+  const setSetting = trpc.settings.set.useMutation();
+  const pushCloud = (arr: Inspo[]) => setSetting.mutate({ key: LS, value: JSON.stringify(arr) });
   const [url, setUrl] = useState("");
   const [note, setNote] = useState("");
   const [image, setImage] = useState("");
@@ -73,11 +76,11 @@ export default function Inspiration() {
     if (!image && !url.trim() && !note.trim()) { toast.error("Allega un'immagine o inserisci URL/nota"); return; }
     const item: Inspo = { id: Date.now().toString(), url: url.trim(), note: note.trim(), image, format: format.trim(), platform: detectPlatform(url), createdAt: new Date().toISOString() };
     const next = [item, ...items];
-    setItems(next); save(next);
+    setItems(next); save(next); pushCloud(next);
     setUrl(""); setNote(""); setImage(""); setFormat("");
     toast.success("Riferimento salvato");
   };
-  const remove = (id: string) => { const next = items.filter(i => i.id !== id); setItems(next); save(next); };
+  const remove = (id: string) => { const next = items.filter(i => i.id !== id); setItems(next); save(next); pushCloud(next); };
 
   const remix = (i: Inspo) => {
     let brandName = "DreamBrothers", brandCtx = "";

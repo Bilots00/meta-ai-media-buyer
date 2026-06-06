@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { trpc } from "@/lib/trpc";
 
 interface DriveFile { id: string; name: string; mimeType: string; createdTime: string; size?: string; thumbnailLink?: string; }
 type ViewMode = "grid" | "list";
@@ -106,6 +107,7 @@ export default function AssetsLibrary() {
   const [connected, setConnected] = useState(false);
   const [folderInput, setFolderInput] = useState("");
   const [apiKeyInput, setApiKeyInput] = useState("");
+  const setSetting = trpc.settings.set.useMutation();
 
   const handleCreatePost = (f: DriveFile) => {
     localStorage.setItem("db_social_asset", JSON.stringify({ id: f.id, name: f.name, mimeType: f.mimeType, thumb: getThumbnailUrl(f.id), view: getViewUrl(f.id), type: isVideo(f.mimeType) ? "video" : "image" }));
@@ -144,6 +146,8 @@ export default function AssetsLibrary() {
     if (!apiKeyInput.trim() || !folderInput.trim()) { toast.error("Inserisci API key e URL cartella"); return; }
     const fId = parseFolderId(folderInput);
     localStorage.setItem(LS_FOLDER, fId); localStorage.setItem(LS_APIKEY, apiKeyInput.trim());
+    setSetting.mutate({ key: LS_FOLDER, value: fId });
+    setSetting.mutate({ key: LS_APIKEY, value: apiKeyInput.trim() });
     setFolderId(fId); setApiKey(apiKeyInput.trim()); loadFiles(fId, apiKeyInput.trim());
   };
 
@@ -171,7 +175,7 @@ export default function AssetsLibrary() {
           <Button size="sm" onClick={() => loadFiles(folderId, apiKey)} disabled={loading} className="gap-2 text-white" style={{ background: "linear-gradient(135deg, oklch(0.55 0.22 265), oklch(0.45 0.2 290))" }}>
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Aggiorna
           </Button>
-          <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => { localStorage.removeItem(LS_FOLDER); localStorage.removeItem(LS_APIKEY); setConnected(false); setFolderId(""); setApiKey(""); setFiles([]); }}>
+          <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => { localStorage.removeItem(LS_FOLDER); localStorage.removeItem(LS_APIKEY); setSetting.mutate({ key: LS_FOLDER, value: "" }); setSetting.mutate({ key: LS_APIKEY, value: "" }); setConnected(false); setFolderId(""); setApiKey(""); setFiles([]); }}>
             Disconnetti
           </Button>
         </div>
