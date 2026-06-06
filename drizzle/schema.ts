@@ -299,3 +299,14 @@ export const trackingConfigs = mysqlTable("tracking_configs", {
 });
 
 export type TrackingConfig = typeof trackingConfigs.$inferSelect;
+
+// ─── User Settings (backup cloud di localStorage) ────────────────────────────
+export const userSettings = mysqlTable("user_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  settingKey: varchar("settingKey", { length: 128 }).notNull(),
+  settingValue: text("settingValue"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type UserSetting = typeof userSettings.$inferSelect;
