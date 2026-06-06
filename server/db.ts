@@ -1,6 +1,6 @@
 import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, metaAccounts, campaigns, adSets, ads, kpiSnapshots, goals, agentLogs, abTests, alerts, copyGenerations, trackingConfigs } from "../drizzle/schema";
+import { InsertUser, users, metaAccounts, campaigns, adSets, ads, kpiSnapshots, goals, agentLogs, abTests, alerts, copyGenerations, trackingConfigs, userSettings } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -293,4 +293,21 @@ export async function upsertTrackingConfig(data: typeof trackingConfigs.$inferIn
   const db = await getDb();
   if (!db) throw new Error("DB not available");
   await db.insert(trackingConfigs).values(data).onDuplicateKeyUpdate({ set: { pixelId: data.pixelId, pixelName: data.pixelName, pixelInstalled: data.pixelInstalled, capiEnabled: data.capiEnabled, websiteUrl: data.websiteUrl, trackedEvents: data.trackedEvents, updatedAt: new Date() } });
+}
+
+
+// ─── User Settings ──────────────────────────────────────────────────────────
+export async function getAllUserSettings(userId: number): Promise<Record<string, string>> {
+  const db = await getDb();
+  if (!db) return {};
+  const rows = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
+  const out: Record<string, string> = {};
+  for (const r of rows) { if (r.settingValue != null) out[r.settingKey] = r.settingValue; }
+  return out;
+}
+
+export async function upsertUserSetting(userId: number, key: string, value: string): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(userSettings).values({ userId, settingKey: key, settingValue: value }).onDuplicateKeyUpdate({ set: { settingValue: value } });
 }

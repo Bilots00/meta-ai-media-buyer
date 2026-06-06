@@ -15,6 +15,7 @@ import {
   getAlertsByUserId, insertAlert, markAlertRead, resolveAlert,
   getCopyGenerationsByUserId, insertCopyGeneration, updateCopyGenerationSelection,
   getTrackingConfigByAccount, upsertTrackingConfig,
+  getAllUserSettings, upsertUserSetting,
 } from "./db";
 import {
   getAdAccountInfo, getMetaCampaigns, createMetaCampaign,
@@ -34,6 +35,17 @@ export const appRouter = router({
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return { success: true } as const;
+    }),
+  }),
+
+  // ─── User Settings (persistenza cloud) ──────────────────────────────────────
+  settings: router({
+    getAll: protectedProcedure.query(async ({ ctx }) => {
+      return getAllUserSettings(ctx.user.id);
+    }),
+    set: protectedProcedure.input(z.object({ key: z.string(), value: z.string() })).mutation(async ({ ctx, input }) => {
+      await upsertUserSetting(ctx.user.id, input.key, input.value);
       return { success: true } as const;
     }),
   }),
