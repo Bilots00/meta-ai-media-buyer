@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
 import {
-  Activity, AlertTriangle, BarChart3, Bell, Bot,
+  Activity, AlertTriangle, BarChart3, Bell, Bot, Maximize,
   ChevronDown, FlaskConical, Instagram, Layout,
   LogOut, Megaphone, Package2, PanelLeft, Plug,
   Sparkles, Target, Zap, MessageSquare, Calendar, PenSquare,
@@ -284,6 +284,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 Agente META in esecuzione
               </div>
             )}
+            <button onClick={() => { if (!document.fullscreenElement) { document.documentElement.requestFullscreen?.(); } else { document.exitFullscreen?.(); } }} className="p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" title="Schermo intero (focus mode)">
+              <Maximize className="w-5 h-5" />
+            </button>
             <button onClick={() => navigate("/alerts")} className="relative p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
               <Bell className="w-5 h-5" />
               {unreadCount > 0 && (
