@@ -75,7 +75,7 @@ function AppRouter() {
   );
 }
 
-const SYNC_KEYS = ["assets_library_api_key", "assets_library_folder_id", "db_inspirations", "db_brand"];
+const SYNC_KEYS = ["assets_library_api_key", "assets_library_folder_id", "db_inspirations", "db_brand", "gelato.savedTemplates", "gelato.creds"];
 
 function CloudSync({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
