@@ -3,35 +3,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { ExternalLink, Package, Plus, Loader2, Save } from "lucide-react";
+import { ExternalLink, Package, Plus, Loader2, Save, Pencil, Trash2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getTemplate } from "@/lib/gelatoFetch";
+import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
-type Product = {
-  id: string;
-  name: string;
-  type: string;
-  variants: string[];
-  printAreas: string[];
-};
-
-type ProductSelectorProps = {
-  onProductSelect: (product: Product) => void;
-  selectedProduct?: Product;
-};
-
-type SavedTemplate = {
-  id: string;
-  templateId: string;
-  name: string;
-  productType?: string;
-  variants?: string[];
-  createdAt: number;
-};
+type Product = { id: string; name: string; type: string; variants: string[]; printAreas: string[] };
+type ProductSelectorProps = { onProductSelect: (product: Product) => void; selectedProduct?: Product };
+type SavedTemplate = { id: string; templateId: string; name: string; productType?: string; variants?: string[]; createdAt: number };
 
 const LS_KEY = "gelato.savedTemplates";
+const readSaved = (): SavedTemplate[] => { try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); } catch { return []; } };
 
 export function ProductSelector({ onProductSelect, selectedProduct }: ProductSelectorProps) {
   const [productId, setProductId] = useState("");
@@ -39,16 +22,17 @@ export function ProductSelector({ onProductSelect, selectedProduct }: ProductSel
   const [isLoading, setIsLoading] = useState(false);
   const [showManual, setShowManual] = useState(true);
   const [saved, setSaved] = useState<SavedTemplate[]>([]);
+  const [manage, setManage] = useState(false);
+  const setSetting = trpc.settings.set.useMutation();
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) setSaved(JSON.parse(raw));
-    } catch {}
-  }, []);
-  useEffect(() => {
-    try { localStorage.setItem(LS_KEY, JSON.stringify(saved)); } catch {}
-  }, [saved]);
+  useEffect(() => { setSaved(readSaved()); }, []);
+
+  // Scrittura merge-safe (legge dal localStorage, scrive, aggiorna stato) + push su DB
+  const writeSaved = (list: SavedTemplate[]) => {
+    localStorage.setItem(LS_KEY, JSON.stringify(list));
+    setSaved(list);
+    try { setSetting.mutate({ key: LS_KEY, value: JSON.stringify(list) }); } catch {}
+  };
 
   const isGuidSelected =
     !!selectedProduct &&
@@ -85,7 +69,7 @@ export function ProductSelector({ onProductSelect, selectedProduct }: ProductSel
 
   const onSelectSaved = async (val: string) => {
     if (val === "__other__") { setShowManual(true); return; }
-    const picked = saved.find((s) => s.templateId === val);
+    const picked = readSaved().find((s) => s.templateId === val);
     if (!picked) return;
     setProductId(picked.templateId);
     setProductName(picked.name);
@@ -94,16 +78,21 @@ export function ProductSelector({ onProductSelect, selectedProduct }: ProductSel
   };
 
   const onSaveTemplate = () => {
-    if (!productId || !/^[0-9a-f-]{36}$/i.test(productId)) {
-      toast.error("Serve un UUID Gelato valido.");
-      return;
-    }
+    if (!productId || !/^[0-9a-f-]{36}$/i.test(productId)) { toast.error("Serve un UUID Gelato valido."); return; }
     const name = productName?.trim() || "Saved Template";
+    const list = readSaved();
     const entry: SavedTemplate = { id: crypto.randomUUID(), templateId: productId, name, createdAt: Date.now() };
-    setSaved((prev) => [entry, ...prev.filter((x) => x.templateId !== entry.templateId)].slice(0, 50));
+    writeSaved([entry, ...list.filter((x) => x.templateId !== entry.templateId)].slice(0, 50));
     toast.success(`Template "${name}" salvato.`);
     setShowManual(false);
   };
+
+  const renameSaved = (id: string, name: string) => {
+    const clean = name.trim();
+    if (!clean) return;
+    writeSaved(readSaved().map((s) => (s.id === id ? { ...s, name: clean } : s)));
+  };
+  const deleteSaved = (id: string) => { writeSaved(readSaved().filter((s) => s.id !== id)); toast.success("Template eliminato"); };
 
   return (
     <div className="space-y-6">
@@ -117,8 +106,15 @@ export function ProductSelector({ onProductSelect, selectedProduct }: ProductSel
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="space-y-2">
-            <Label>Template salvati</Label>
-            <Select onValueChange={onSelectSaved}>
+            <div className="flex items-center justify-between">
+              <Label>Template salvati</Label>
+              {saved.length > 0 && (
+                <button type="button" onClick={() => setManage((m) => !m)} className="text-xs text-muted-foreground flex items-center gap-1 hover:text-foreground">
+                  <Pencil className="h-3 w-3" />{manage ? "Chiudi" : "Gestisci / Rinomina"}
+                </button>
+              )}
+            </div>
+            <Select onValueChange={onSelectSaved} onOpenChange={(o) => { if (o) setSaved(readSaved()); }}>
               <SelectTrigger style={{ background: "oklch(0.16 0.015 260)" }}>
                 <SelectValue placeholder={saved.length ? "Scegli un template salvato…" : "Nessun template salvato"} />
               </SelectTrigger>
@@ -129,7 +125,20 @@ export function ProductSelector({ onProductSelect, selectedProduct }: ProductSel
                 <SelectItem value="__other__">Aggiungi nuovo template…</SelectItem>
               </SelectContent>
             </Select>
+
+            {manage && (
+              <div className="space-y-2 rounded-xl p-3" style={{ background: "oklch(0.16 0.015 260)", border: "1px solid oklch(0.22 0.015 260)" }}>
+                {saved.map((s) => (
+                  <div key={s.id} className="grid gap-2 items-center" style={{ gridTemplateColumns: "1fr auto" }}>
+                    <Input defaultValue={s.name} onBlur={(e) => renameSaved(s.id, e.target.value)} placeholder="Nome template" style={{ background: "oklch(0.14 0.015 260)" }} />
+                    <Button size="sm" variant="ghost" onClick={() => deleteSaved(s.id)} title="Elimina"><Trash2 className="h-4 w-4" /></Button>
+                  </div>
+                ))}
+                <p className="text-[11px] text-muted-foreground">Modifica il nome e clicca fuori dal campo per salvare la rinomina.</p>
+              </div>
+            )}
           </div>
+
           {showManual && (
             <div className="grid gap-4">
               <div className="space-y-2">

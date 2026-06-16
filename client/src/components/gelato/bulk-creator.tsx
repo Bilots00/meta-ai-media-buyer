@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { CheckCircle, Loader2, Package, Rocket, Layers, Plus, Trash2, Save } from "lucide-react";
 import { toast } from "sonner";
+import { trpc } from "@/lib/trpc";
 
 const STORE_ID = import.meta.env.VITE_GELATO_STORE_ID as string | undefined;
 
@@ -102,20 +103,8 @@ export function BulkCreator() {
   const [creationProgress, setCreationProgress] = useState(0);
   const [createdProducts, setCreatedProducts] = useState<any[]>([]);
   const [template, setTemplate] = useState<any | null>(null);
-  const [extraTemplates, setExtraTemplates] = useState<{ id: string; label: string }[]>([]);
-
-  const saveExtraTemplate = (t: { id: string; label: string }) => {
-    if (!isUuid(t.id)) { toast.error("Serve un UUID Gelato valido."); return; }
-    const name = (t.label || "").trim() || "Template salvato";
-    try {
-      const raw = localStorage.getItem("gelato.savedTemplates");
-      const arr = raw ? JSON.parse(raw) : [];
-      const entry = { id: crypto.randomUUID(), templateId: t.id.trim(), name, createdAt: Date.now() };
-      const next = [entry, ...arr.filter((x: any) => x.templateId !== entry.templateId)].slice(0, 50);
-      localStorage.setItem("gelato.savedTemplates", JSON.stringify(next));
-      toast.success(`Template "${name}" salvato — lo trovi nel menu "Template salvati" (ricarica la pagina)`);
-    } catch { toast.error("Errore nel salvataggio del template"); }
-  };
+  const [extraSlots, setExtraSlots] = useState<{ product?: Product }[]>([]);
+  const setSetting = trpc.settings.set.useMutation();
 
   useEffect(() => {
     try {
@@ -126,7 +115,7 @@ export function BulkCreator() {
 
   const handleConnect = (creds: { apiKey: string; storeName: string }) => {
     setCredentials(creds); setIsConnected(true); setCurrentStep(2);
-    try { localStorage.setItem("gelato.creds", JSON.stringify(creds)); } catch {}
+    try { const v = JSON.stringify(creds); localStorage.setItem("gelato.creds", v); setSetting.mutate({ key: "gelato.creds", value: v }); } catch {}
     toast.success(`Connesso a ${creds.storeName}`);
   };
 
@@ -147,7 +136,7 @@ export function BulkCreator() {
     try {
       const templateList: { id: string; label: string }[] = [
         { id: selectedProduct.id, label: "" },
-        ...extraTemplates.filter(t => isUuid(t.id)).map(t => ({ id: t.id.trim(), label: (t.label || "").trim() })),
+        ...extraSlots.filter(s => s.product && isUuid(s.product.id)).map(s => ({ id: s.product!.id, label: (s.product!.name || "").trim() })),
       ];
 
       // 1) Raggruppa e CARICA le immagini UNA VOLTA SOLA (riusate per ogni template)
@@ -260,19 +249,19 @@ export function BulkCreator() {
                       <h3 className="font-semibold flex items-center gap-2"><Layers className="h-4 w-4" />Pubblica anche come (opzionale)</h3>
                       <p className="text-xs text-muted-foreground">Stesso design come prodotti separati: Canvas, Framed Poster, Framed Canvas… (nessun limite)</p>
                     </div>
-                    <Button size="sm" variant="secondary" onClick={() => setExtraTemplates([...extraTemplates, { id: "", label: "" }])}>
+                    <Button size="sm" variant="secondary" onClick={() => setExtraSlots([...extraSlots, {}])}>
                       <Plus className="h-4 w-4 mr-1" />Aggiungi template
                     </Button>
                   </div>
-                  {extraTemplates.map((t, i) => (
-                    <div key={i} className="grid gap-2 items-center" style={{ gridTemplateColumns: "1fr 150px auto auto" }}>
-                      <Input placeholder="Template ID (UUID) del Canvas / Framed…" value={t.id} onChange={(e) => setExtraTemplates(extraTemplates.map((x, j) => j === i ? { ...x, id: e.target.value } : x))} style={{ background: "oklch(0.16 0.015 260)" }} />
-                      <Input placeholder="Nome (es. Canvas)" value={t.label} onChange={(e) => setExtraTemplates(extraTemplates.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} style={{ background: "oklch(0.16 0.015 260)" }} />
-                      <Button size="sm" variant="secondary" onClick={() => saveExtraTemplate(t)} title="Salva questo template" disabled={!isUuid(t.id)}><Save className="h-4 w-4" /></Button>
-                      <Button size="sm" variant="ghost" onClick={() => setExtraTemplates(extraTemplates.filter((_, j) => j !== i))} title="Rimuovi"><Trash2 className="h-4 w-4" /></Button>
+                  {extraSlots.map((slot, i) => (
+                    <div key={i} className="rounded-xl p-3 space-y-2" style={{ background: "oklch(0.16 0.012 260)", border: "1px solid oklch(0.22 0.015 260)" }}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">Formato extra #{i + 1}</span>
+                        <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => setExtraSlots(extraSlots.filter((_, j) => j !== i))} title="Rimuovi formato"><Trash2 className="h-4 w-4 mr-1" />Rimuovi</Button>
+                      </div>
+                      <ProductSelector selectedProduct={slot.product} onProductSelect={(p) => setExtraSlots(extraSlots.map((x, j) => j === i ? { product: p } : x))} />
                     </div>
                   ))}
-                  {extraTemplates.some(t => t.id && !isUuid(t.id)) && <p className="text-xs text-red-400">Alcuni Template ID non sono UUID validi e verranno ignorati.</p>}
                 </CardContent>
               </Card>
             )}
