@@ -232,7 +232,7 @@ export function BulkCreator() {
       </StepCard>
 
       <StepCard step={2} title="Carica le Immagini" description="Upload Multi-Chunk sicuro — chunk da 6MB, retry automatico" isActive={currentStep === 2} isCompleted={images.length > 0}>
-        {(currentStep === 2 || images.length > 0) && isConnected && (
+        {(currentStep >= 2) && isConnected && (
           <ImageUploader onImagesChange={handleImagesChange} processingOptions={processingOptions} onOptionsChange={setProcessingOptions} />
         )}
       </StepCard>
