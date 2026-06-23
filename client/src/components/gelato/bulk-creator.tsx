@@ -9,14 +9,16 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { CheckCircle, Loader2, Package, Rocket, Layers, Plus, Trash2, Save } from "lucide-react";
+import { CheckCircle, Loader2, Package, Rocket, Layers, Plus, Trash2, Save, Star, Tag, Boxes } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 
 const STORE_ID = import.meta.env.VITE_GELATO_STORE_ID as string | undefined;
+const WORKER_BASE = "https://gelato-backend.andrea-bilotta00.workers.dev";
 
 type ImageFile = { id: string; file: File; preview: string; name: string; size: string };
 type Product = { id: string; name: string; type: string; variants: string[]; printAreas: string[] };
+type RefProduct = { legacyId: string; title: string; image: string | null };
 type ProductRulesType = {
   titleMode: "filename" | "ai-simple" | "ai-compound";
   titleMaxWords: number;
@@ -63,8 +65,58 @@ function getVariantRatioTag(variantTitle: string): string {
   return "default";
 }
 
+// Picker prodotti dal catalogo Shopify (via worker /shopify-search-products)
+function ShopifyProductPicker({ label, hint, icon, value, onChange }: { label: string; hint: string; icon?: React.ReactNode; value: RefProduct | null; onChange: (p: RefProduct | null) => void; }) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<RefProduct[]>([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    if (!q || q.trim().length < 2) { setResults([]); return; }
+    let active = true; setLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch(`${WORKER_BASE}/shopify-search-products?q=${encodeURIComponent(q.trim())}`);
+        const d = await r.json();
+        if (active) setResults((d.products || []).map((p: any) => ({ legacyId: p.legacyId, title: p.title, image: p.image })));
+      } catch { /* ignore */ } finally { if (active) setLoading(false); }
+    }, 350);
+    return () => { active = false; clearTimeout(t); };
+  }, [q]);
+  return (
+    <div className="space-y-1">
+      <label className="text-sm font-medium flex items-center gap-2">{icon}{label}</label>
+      <p className="text-xs text-muted-foreground">{hint}</p>
+      {value ? (
+        <div className="flex items-center justify-between rounded-lg p-2" style={{ background: "oklch(0.16 0.012 260)", border: "1px solid oklch(0.22 0.015 260)" }}>
+          <div className="flex items-center gap-2 min-w-0">
+            {value.image && <img src={value.image} alt="" className="h-8 w-8 rounded object-cover" />}
+            <span className="text-sm truncate">{value.title}</span>
+          </div>
+          <Button size="sm" variant="ghost" onClick={() => { onChange(null); setQ(""); }}>Cambia</Button>
+        </div>
+      ) : (
+        <div className="relative">
+          <Input value={q} placeholder="Cerca un prodotto nel catalogo..." onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} />
+          {open && (results.length > 0 || loading) && (
+            <div className="absolute z-50 mt-1 w-full rounded-lg max-h-64 overflow-auto" style={{ background: "oklch(0.14 0.015 260)", border: "1px solid oklch(0.25 0.02 265 / 0.6)" }}>
+              {loading && <div className="p-2 text-xs text-muted-foreground">Ricerca...</div>}
+              {results.map((p) => (
+                <button key={p.legacyId} type="button" className="flex items-center gap-2 w-full text-left p-2 hover:bg-white/5" onClick={() => { onChange(p); setOpen(false); setQ(""); }}>
+                  {p.image && <img src={p.image} alt="" className="h-8 w-8 rounded object-cover" />}
+                  <span className="text-sm truncate">{p.title}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 async function uploadOriginalFile(file: File, exactFileName: string) {
-  const BASE_URL = "https://gelato-backend.andrea-bilotta00.workers.dev";
+  const BASE_URL = WORKER_BASE;
   const CHUNK_SIZE = 6 * 1024 * 1024;
   const startRes = await fetch(`${BASE_URL}/upload-start?filename=${encodeURIComponent(exactFileName)}`, { method: "POST" });
   if (!startRes.ok) { const e = await startRes.json().catch(() => ({})); throw new Error(`Errore Inizio Upload: ${e.error || await startRes.text()}`); }
@@ -104,6 +156,10 @@ export function BulkCreator() {
   const [createdProducts, setCreatedProducts] = useState<any[]>([]);
   const [template, setTemplate] = useState<any | null>(null);
   const [extraSlots, setExtraSlots] = useState<{ product?: Product }[]>([]);
+  // v24: impostazioni post-pubblicazione (per-run)
+  const [mostPopularVariant, setMostPopularVariant] = useState("");
+  const [priceRef, setPriceRef] = useState<RefProduct | null>(null);
+  const [inventoryRef, setInventoryRef] = useState<RefProduct | null>(null);
   const setSetting = trpc.settings.set.useMutation();
 
   useEffect(() => {
@@ -112,6 +168,17 @@ export function BulkCreator() {
       if (raw) { const c = JSON.parse(raw); setCredentials(c); setIsConnected(true); setCurrentStep(2); }
     } catch {}
   }, []);
+
+  // ricorda le ultime scelte di automazione
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("gelato.automation");
+      if (raw) { const a = JSON.parse(raw); if (a.mostPopularVariant) setMostPopularVariant(a.mostPopularVariant); if (a.priceRef) setPriceRef(a.priceRef); if (a.inventoryRef) setInventoryRef(a.inventoryRef); }
+    } catch {}
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem("gelato.automation", JSON.stringify({ mostPopularVariant, priceRef, inventoryRef })); } catch {}
+  }, [mostPopularVariant, priceRef, inventoryRef]);
 
   const handleConnect = (creds: { apiKey: string; storeName: string }) => {
     setCredentials(creds); setIsConnected(true); setCurrentStep(2);
@@ -138,6 +205,13 @@ export function BulkCreator() {
         { id: selectedProduct.id, label: "" },
         ...extraSlots.filter(s => s.product && isUuid(s.product.id)).map(s => ({ id: s.product!.id, label: (s.product!.name || "").trim() })),
       ];
+
+      // settings post-pubblicazione (uguali per tutto il run)
+      const runSettings = {
+        mostPopular: mostPopularVariant.trim() || "",
+        priceRef: priceRef?.legacyId || "",
+        inventoryRef: inventoryRef?.legacyId || "",
+      };
 
       // 1) Raggruppa e CARICA le immagini UNA VOLTA SOLA (riusate per ogni template)
       const groupedProducts: Record<string, Record<string, ImageFile>> = {};
@@ -169,7 +243,7 @@ export function BulkCreator() {
       const allResults: any[] = [];
       let tIndex = 0;
       for (const t of templateList) {
-        const tplRes = await fetch(`https://gelato-backend.andrea-bilotta00.workers.dev/gelato-get-template?templateId=${t.id}`);
+        const tplRes = await fetch(`${WORKER_BASE}/gelato-get-template?templateId=${t.id}`);
         if (!tplRes.ok) { allResults.push({ title: `Template ${t.id.slice(0, 8)}`, status: "error", error: "Template non trovato" }); tIndex++; continue; }
         const tpl = await tplRes.json();
         if (t.id === selectedProduct.id) setTemplate(tpl);
@@ -187,9 +261,9 @@ export function BulkCreator() {
           }
           products.push({ title: grp.title + suffix, description: rules.descriptionCustomHTML || "Generated by Gelato Bulk Creator", tags: rules.tagsCustom.length > 0 ? rules.tagsCustom : ["gelato", "bulk-created"], variants: variantsPayload });
         }
-        const createRes = await fetch("https://gelato-backend.andrea-bilotta00.workers.dev/gelato-bulk-create", {
+        const createRes = await fetch(`${WORKER_BASE}/gelato-bulk-create`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ templateId: tpl.id, publish: true, products, storeId: STORE_ID, salesChannels: ["shopify"] }),
+          body: JSON.stringify({ templateId: tpl.id, publish: true, products, storeId: STORE_ID, salesChannels: ["shopify"], settings: runSettings }),
         });
         let data: any = {}; try { data = await createRes.json(); } catch {}
         const results = (data.results || []).map((r: any) => ({ ...r, templateName: tpl.title || t.label || tpl.productType }));
@@ -202,7 +276,7 @@ export function BulkCreator() {
       setCreatedProducts(allResults); setCreationProgress(100); setIsCreating(false);
       const successCount = allResults.filter((r: any) => r.status === "active" || r.status === "created_in_background").length;
       const errorCount = allResults.filter((r: any) => r.status === "error").length;
-      if (successCount > 0) toast.success(`🎉 Creati ${successCount} prodotti su ${templateList.length} template${errorCount ? `, ${errorCount} falliti` : ""}`);
+      if (successCount > 0) toast.success(`Creati ${successCount} prodotti su ${templateList.length} template${errorCount ? `, ${errorCount} falliti` : ""}`);
       else toast.error("0 prodotti creati. Controlla i Template ID.");
     } catch (error: any) {
       setIsCreating(false); setCreationProgress(0);
@@ -271,6 +345,29 @@ export function BulkCreator() {
         {currentStep === 4 && selectedProduct && (
           <div className="space-y-6">
             <ProductRules rules={rules} onRulesChange={setRules} onSave={() => toast.success("Regole salvate")} />
+
+            {/* v24: Automazioni post-pubblicazione */}
+            <Card style={{ background: "oklch(0.14 0.015 260)", border: "1px solid oklch(0.2 0.015 260)" }}>
+              <CardContent className="p-5 space-y-4">
+                <div>
+                  <h3 className="font-semibold flex items-center gap-2"><Star className="h-4 w-4" />Automazioni post-pubblicazione (opzionali)</h3>
+                  <p className="text-xs text-muted-foreground">Applicate in automatico dal worker quando i prodotti compaiono su Shopify. Lascia vuoto ciò che non vuoi usare.</p>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-sm font-medium flex items-center gap-2"><Star className="h-4 w-4" />Badge "Most popular" sulla variante</label>
+                  <p className="text-xs text-muted-foreground">Nome esatto della variante/taglia da evidenziare (es. "50x70 cm"). Scrive il metafield custom.most_popular_variant.</p>
+                  <Input list="mp-variants" value={mostPopularVariant} placeholder="es. 50x70 cm" onChange={(e) => setMostPopularVariant(e.target.value)} />
+                  <datalist id="mp-variants">
+                    {(selectedProduct?.variants || []).map((v, i) => <option key={i} value={v} />)}
+                  </datalist>
+                </div>
+
+                <ShopifyProductPicker icon={<Tag className="h-4 w-4" />} label="Copia PREZZI + compare-at da" hint="Prodotto modello da cui copiare prezzo e prezzo barrato per ogni taglia (match per variante)." value={priceRef} onChange={setPriceRef} />
+                <ShopifyProductPicker icon={<Boxes className="h-4 w-4" />} label="Copia INVENTARIO da" hint="Prodotto modello da cui copiare giacenza e tracciamento per ogni taglia (così le varianti non risultano sold out)." value={inventoryRef} onChange={setInventoryRef} />
+              </CardContent>
+            </Card>
+
             <Card style={{ background: "oklch(0.14 0.015 260)", border: "1px solid oklch(0.35 0.15 145 / 0.3)" }}>
               <CardContent className="p-6 text-center space-y-4">
                 <div className="flex items-center justify-center space-x-2 mb-4">
