@@ -400,10 +400,18 @@ function CreateView() {
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
+const tabFromPath = (loc: string): Tab =>
+  loc.includes("chat") ? "chat" : loc.includes("create") ? "create" : "calendar";
+
 export default function SocialMedia() {
   const [location, navigate] = useLocation();
-  const initialTab: Tab = location.includes("chat") ? "chat" : location.includes("create") ? "create" : "calendar";
-  const [tab, setTab] = useState<Tab>(initialTab);
+  const [tab, setTab] = useState<Tab>(() => tabFromPath(location));
+
+  // Keep the active tab in sync with the URL so sidebar navigation
+  // (Calendario / AI Manager / Crea Post) actually switches the view.
+  useEffect(() => {
+    setTab(tabFromPath(location));
+  }, [location]);
 
   const tabs = [
     { id: "calendar" as Tab, icon: Calendar, label: "Calendario", desc: "Contenuti settimanali" },
