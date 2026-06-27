@@ -22,6 +22,8 @@ import GelatoMaker from "./pages/GelatoMaker";
 import SocialMedia from "./pages/SocialMedia";
 import AssetsLibrary from "./pages/AssetsLibrary";
 import Inspiration from "./pages/Inspiration";
+import CustomerCare from "./pages/CustomerCare";
+import SocialDrafts from "./pages/SocialDrafts";
 import Settings from "./pages/Settings";
 import Login from "./pages/Login";
 
@@ -62,7 +64,12 @@ function AppRouter() {
       <Route path="/social/calendar">{withLayout(SocialMedia)}</Route>
       <Route path="/social/chat">{withLayout(SocialMedia)}</Route>
       <Route path="/social/create">{withLayout(SocialMedia)}</Route>
+      <Route path="/social/drafts">{withLayout(SocialDrafts)}</Route>
       <Route path="/social">{() => { window.location.replace("/social/calendar"); return null; }}</Route>
+
+      {/* CUSTOMER CARE */}
+      <Route path="/care">{withLayout(CustomerCare)}</Route>
+      <Route path="/care/urgent">{withLayout(CustomerCare)}</Route>
 
       {/* META LIBRARY */}
       <Route path="/meta/library/inspiration">{withLayout(Inspiration)}</Route>

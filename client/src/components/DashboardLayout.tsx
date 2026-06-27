@@ -9,7 +9,7 @@ import {
   ChevronDown, FlaskConical, Instagram, Layout,
   LogOut, Megaphone, Package2, PanelLeft, Plug,
   Sparkles, Target, Zap, MessageSquare, Calendar, PenSquare,
-  Library, Images, Lightbulb, Settings as SettingsIcon,
+  Library, Images, Lightbulb, Settings as SettingsIcon, ClipboardList, Headset, Inbox,
 } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
@@ -37,6 +37,11 @@ const SOCIAL_ITEMS = [
   { icon: Calendar, label: "Calendario", path: "/social/calendar", description: "Contenuti settimana" },
   { icon: MessageSquare, label: "AI Manager", path: "/social/chat", description: "Strategia & chat" },
   { icon: PenSquare, label: "Crea Post", path: "/social/create", description: "Generator AI" },
+  { icon: ClipboardList, label: "Bozze", path: "/social/drafts", description: "Post AI da revisionare" },
+];
+
+const CARE_ITEMS = [
+  { icon: Inbox, label: "Inbox", path: "/care", description: "Tutti i messaggi clienti" },
 ];
 
 const LIBRARY_ITEMS = [
@@ -45,7 +50,7 @@ const LIBRARY_ITEMS = [
 ];
 
 // Flat map for header lookup
-const ALL_ITEMS = [...META_ADS_ITEMS, ...GELATO_ITEMS, ...SOCIAL_ITEMS, ...LIBRARY_ITEMS];
+const ALL_ITEMS = [...META_ADS_ITEMS, ...GELATO_ITEMS, ...SOCIAL_ITEMS, ...CARE_ITEMS, ...LIBRARY_ITEMS];
 
 // ─── NavGroup component ───────────────────────────────────────────────────────
 function NavGroup({
@@ -226,6 +231,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             location={location}
             navigate={navigate}
             sidebarOpen={sidebarOpen}
+            defaultOpen={false}
+          />
+
+          {/* Customer Care */}
+          <NavGroup
+            label="Customer Care"
+            icon={Headset}
+            color="oklch(0.6 0.18 145)"
+            items={CARE_ITEMS}
+            location={location}
+            navigate={navigate}
+            sidebarOpen={sidebarOpen}
+            badges={{ "/care": 2 }}
             defaultOpen={false}
           />
 
