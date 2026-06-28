@@ -4,6 +4,7 @@ import {
   insertCsMessage,
   getPendingCsMessages,
   recordCsReply,
+  getAllUserSettings,
 } from "../db";
 
 // Customer Care server-to-server endpoints, used by the n8n workflow (the always-on
@@ -59,6 +60,18 @@ export function registerCareRoutes(app: Express) {
     } catch (err) {
       console.warn("[care/ingest] error:", err);
       res.status(500).json({ error: "ingest failed" });
+    }
+  });
+
+  // n8n / agent -> read runtime config (e.g. whether AI autopilot auto-send is ON)
+  app.get("/api/care/config", async (req: Request, res: Response) => {
+    if (!checkSecret(req, res)) return;
+    try {
+      const settings = await getAllUserSettings(OWNER_USER_ID);
+      res.json({ success: true, autopilot: settings.cs_autopilot === "true" });
+    } catch (err) {
+      console.warn("[care/config] error:", err);
+      res.status(500).json({ error: "config failed" });
     }
   });
 
