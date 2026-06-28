@@ -133,6 +133,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { data: dashboard } = trpc.kpi.getDashboard.useQuery({ days: 30 }, { enabled: !!user, refetchInterval: 60000 });
   const { data: alerts } = trpc.alerts.list.useQuery({ onlyUnread: true }, { enabled: !!user, refetchInterval: 30000 });
   const unreadCount = alerts?.length ?? 0;
+  const { data: careConvos } = trpc.customerCare.list.useQuery(undefined, { enabled: !!user, refetchInterval: 30000 });
+  const careUnread = (careConvos ?? []).filter((c) => c.unread).length;
 
   if (loading) return <DashboardLayoutSkeleton />;
 
@@ -243,7 +245,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             location={location}
             navigate={navigate}
             sidebarOpen={sidebarOpen}
-            badges={{ "/care": 2 }}
+            badges={{ "/care": careUnread }}
             defaultOpen={false}
           />
 

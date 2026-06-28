@@ -44,6 +44,10 @@ export default function CustomerCare() {
   const sendReplyM = trpc.customerCare.sendReply.useMutation({ onSuccess: () => { setReply(""); utils.customerCare.list.invalidate(); } });
   const resolveM = trpc.customerCare.markResolved.useMutation({ onSuccess: () => utils.customerCare.list.invalidate() });
 
+  const settingsQuery = trpc.settings.getAll.useQuery(undefined, { refetchOnWindowFocus: false });
+  const autopilot = settingsQuery.data?.cs_autopilot === "true";
+  const setSetting = trpc.settings.set.useMutation({ onSuccess: () => utils.settings.getAll.invalidate() });
+
   const counts = {
     all: convos.filter((c) => c.status !== "archived").length,
     unread: convos.filter((c) => c.unread).length,
@@ -73,19 +77,7 @@ export default function CustomerCare() {
     return c.channel === folder;
   }).filter((c) => !query || (c.name + c.preview).toLowerCase().includes(query.toLowerCase()));
 
-  if (convos.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center text-center gap-2" style={{ height: "calc(100vh - 130px)" }}>
-        <Inbox className="w-10 h-10 text-muted-foreground" />
-        <h1 className="text-lg font-bold">Customer Care</h1>
-        <p className="text-sm text-muted-foreground max-w-sm">
-          {listQuery.isLoading ? "Carico le conversazioni…" : "Nessuna conversazione ancora. Appena un cliente scrive (WhatsApp, DM, email…) comparirà qui in automatico."}
-        </p>
-      </div>
-    );
-  }
-
-  const selected = (convos.find((c) => c.id === selectedId) ?? list[0] ?? convos[0])!;
+  const selected = convos.find((c) => c.id === selectedId) ?? list[0] ?? convos[0];
 
   return (
     <div className="flex flex-col" style={{ height: "calc(100vh - 130px)" }}>
@@ -99,9 +91,23 @@ export default function CustomerCare() {
             <h1 className="text-lg font-bold">Customer Care</h1>
             <p className="text-xs text-muted-foreground">Tutte le conversazioni clienti (DM, commenti, email, WhatsApp) in un unico posto</p>
           </div>
-          <div className="ml-auto flex items-center gap-2 text-xs px-3 py-2 rounded-xl" style={{ background: "oklch(0.6 0.18 145 / 0.12)", border: "1px solid oklch(0.6 0.18 145 / 0.3)", color: "oklch(0.7 0.16 145)" }}>
-            <Bot className="w-3.5 h-3.5" /> AI risponde in automatico · escala a te se non è sicura
-          </div>
+          <button
+            onClick={() => setSetting.mutate({ key: "cs_autopilot", value: String(!autopilot) })}
+            disabled={setSetting.isPending}
+            title="Quando ON, l'AI risponde da sola a DM e commenti (escala a te i casi incerti). Quando OFF, prepara solo bozze da approvare."
+            className="ml-auto flex items-center gap-2 text-xs px-3 py-2 rounded-xl transition-colors"
+            style={{
+              background: autopilot ? "oklch(0.6 0.18 145 / 0.12)" : "oklch(0.3 0.02 260 / 0.35)",
+              border: autopilot ? "1px solid oklch(0.6 0.18 145 / 0.3)" : "1px solid oklch(0.3 0.02 260)",
+              color: autopilot ? "oklch(0.7 0.16 145)" : "oklch(0.62 0.02 260)",
+            }}
+          >
+            <Bot className="w-3.5 h-3.5" />
+            <span>Risposte automatiche AI: <b>{autopilot ? "ON" : "OFF"}</b></span>
+            <span className="inline-flex items-center rounded-full ml-1" style={{ width: 30, height: 16, background: autopilot ? "oklch(0.6 0.18 145)" : "oklch(0.3 0.02 260)", position: "relative" }}>
+              <span style={{ position: "absolute", top: 2, left: autopilot ? 16 : 2, width: 12, height: 12, borderRadius: "9999px", background: "white", transition: "left .15s" }} />
+            </span>
+          </button>
         </div>
       </div>
 
@@ -135,13 +141,13 @@ export default function CustomerCare() {
           <div className="flex-1 overflow-y-auto">
             {list.length === 0 && <div className="p-6 text-center text-sm text-muted-foreground">Nessun messaggio qui ✨</div>}
             {list.map((c) => {
-              const ch = CHANNELS[c.channel]; const ChIcon = ch.icon; const active = c.id === selected.id;
+              const ch = CHANNELS[c.channel]; const ChIcon = ch.icon; const active = c.id === selected?.id;
               return (
                 <button key={c.id} onClick={() => { setSelectedId(c.id); setReply(""); }}
                   className="w-full text-left p-3 flex gap-3 transition-colors"
                   style={{ background: active ? "oklch(0.16 0.02 265)" : "transparent", borderBottom: "1px solid oklch(0.17 0.015 260)", borderLeft: active ? "2px solid oklch(0.65 0.2 265)" : "2px solid transparent" }}>
                   <div className="relative shrink-0">
-                    <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold" style={{ background: "oklch(0.22 0.02 265)", color: "white" }}>{c.name.charAt(0).toUpperCase()}</div>
+                    <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold" style={{ background: "oklch(0.22 0.02 265)", color: "white" }}>{(c.name || "?").charAt(0).toUpperCase()}</div>
                     <div className="absolute -bottom-1 -right-1 rounded-full flex items-center justify-center" style={{ width: 17, height: 17, background: "oklch(0.12 0.015 260)" }}>
                       <ChIcon className="w-3 h-3" style={{ color: ch.color }} />
                     </div>
@@ -165,6 +171,13 @@ export default function CustomerCare() {
 
         {/* Detail / reply */}
         <div className="flex-1 rounded-2xl flex flex-col overflow-hidden min-w-0" style={{ background: "oklch(0.13 0.015 260)", border: "1px solid oklch(0.2 0.015 260)" }}>
+          {!selected ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center gap-2 p-8">
+              <Inbox className="w-10 h-10 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground max-w-xs">{listQuery.isLoading ? "Carico le conversazioni…" : "Nessuna conversazione ancora. Appena un cliente scrive (WhatsApp, DM, email…) comparirà qui in automatico."}</p>
+            </div>
+          ) : (
+            <>
           {/* conv header */}
           <div className="p-4 flex items-center gap-3 shrink-0" style={{ borderBottom: "1px solid oklch(0.2 0.015 260)" }}>
             <div className="w-10 h-10 rounded-full flex items-center justify-center font-semibold text-white" style={{ background: "oklch(0.22 0.02 265)" }}>{selected.name.charAt(0).toUpperCase()}</div>
@@ -214,6 +227,8 @@ export default function CustomerCare() {
               <Button onClick={() => resolveM.mutate({ conversationId: Number(selected.id) })} disabled={resolveM.isPending} variant="ghost" size="sm" className="h-9 text-muted-foreground"><CheckCheck className="w-4 h-4 mr-1.5" />Segna risolto</Button>
             </div>
           </div>
+            </>
+          )}
         </div>
       </div>
     </div>
