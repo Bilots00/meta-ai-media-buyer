@@ -5,6 +5,7 @@ import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
+import { registerCareRoutes } from "./careRoutes";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -39,6 +40,42 @@ async function runMigrations() {
   } catch (err) {
     console.warn("[Migrate] user_settings non creata:", err);
   }
+  try {
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS cs_conversations (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL,
+      channel VARCHAR(32) NOT NULL,
+      customerName VARCHAR(255),
+      customerHandle VARCHAR(255) NOT NULL,
+      status ENUM('open','ai_handled','needs_human','archived') NOT NULL DEFAULT 'open',
+      unread BOOLEAN NOT NULL DEFAULT TRUE,
+      starred BOOLEAN NOT NULL DEFAULT FALSE,
+      flagReason TEXT,
+      channelUrl TEXT,
+      lastMessageAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_cs_conv (channel, customerHandle)
+    )`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS cs_messages (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      conversationId INT NOT NULL,
+      direction ENUM('in','out') NOT NULL,
+      sender ENUM('customer','ai','human') NOT NULL,
+      text TEXT NOT NULL,
+      status ENUM('new','handled') NOT NULL DEFAULT 'new',
+      handledBy ENUM('claude','openai','human'),
+      needsHuman BOOLEAN NOT NULL DEFAULT FALSE,
+      reason TEXT,
+      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      handledAt TIMESTAMP NULL,
+      INDEX idx_cs_msg_conv (conversationId),
+      INDEX idx_cs_msg_status (status)
+    )`);
+    console.log("[Migrate] Tabelle cs_conversations + cs_messages pronte");
+  } catch (err) {
+    console.warn("[Migrate] tabelle customer care non create:", err);
+  }
 }
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -69,6 +106,7 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+  registerCareRoutes(app);
   // tRPC API
   app.use(
     "/api/trpc",

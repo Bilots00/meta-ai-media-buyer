@@ -16,6 +16,7 @@ import {
   getCopyGenerationsByUserId, insertCopyGeneration, updateCopyGenerationSelection,
   getTrackingConfigByAccount, upsertTrackingConfig,
   getAllUserSettings, upsertUserSetting,
+  getCsConversationsForUser, getCsMessagesForConversation, recordCsReply, updateCsConversation,
 } from "./db";
 import {
   getAdAccountInfo, getMetaCampaigns, createMetaCampaign,
@@ -27,6 +28,16 @@ import {
   runAccountAudit, generateAdCopy, runOptimizationCycle,
   evaluateAbTest, triggerAlert,
 } from "./aiAgent";
+
+function fmtClock(d: Date | string): string {
+  return new Date(d).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" });
+}
+function fmtWhen(d: Date | string): string {
+  const dt = new Date(d);
+  const now = new Date();
+  const sameDay = dt.toDateString() === now.toDateString();
+  return sameDay ? fmtClock(dt) : dt.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit", timeZone: "Europe/Rome" });
+}
 
 export const appRouter = router({
   system: systemRouter,
@@ -569,6 +580,58 @@ export const appRouter = router({
       const account = accounts.find(a => a.id === input.metaAccountId);
       if (!account?.accessToken) return [];
       return getPixels(account.accountId, account.accessToken);
+    }),
+  }),
+
+  // ─── Customer Care (inbox unificata) ─────────────────────────────────────────
+  customerCare: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      const convos = await getCsConversationsForUser(ctx.user.id);
+      const out = [];
+      for (const c of convos) {
+        const msgs = await getCsMessagesForConversation(c.id);
+        const thread = msgs.map(m => ({
+          from: m.direction === "in" ? "customer" : (m.sender === "human" ? "you" : "ai"),
+          text: m.text,
+          time: fmtClock(m.createdAt),
+        }));
+        const lastIn = [...msgs].reverse().find(m => m.direction === "in");
+        const lastOut = [...msgs].reverse().find(m => m.direction === "out");
+        out.push({
+          id: String(c.id),
+          name: c.customerName || c.customerHandle,
+          handle: c.customerHandle,
+          channel: c.channel,
+          status: c.status,
+          preview: (lastIn?.text ?? lastOut?.text ?? "").slice(0, 140),
+          date: fmtWhen(c.lastMessageAt),
+          unread: c.unread,
+          starred: c.starred,
+          flagReason: c.flagReason ?? undefined,
+          aiSuggestion: lastOut?.text ?? "",
+          channelUrl: c.channelUrl ?? "",
+          thread,
+        });
+      }
+      return out;
+    }),
+
+    sendReply: protectedProcedure.input(z.object({
+      conversationId: z.number(),
+      text: z.string().min(1),
+    })).mutation(async ({ input }) => {
+      await recordCsReply({ conversationId: input.conversationId, text: input.text, sender: "human", handledBy: "human" });
+      return { success: true } as const;
+    }),
+
+    markResolved: protectedProcedure.input(z.object({ conversationId: z.number() })).mutation(async ({ input }) => {
+      await updateCsConversation(input.conversationId, { status: "ai_handled", unread: false });
+      return { success: true } as const;
+    }),
+
+    markRead: protectedProcedure.input(z.object({ conversationId: z.number() })).mutation(async ({ input }) => {
+      await updateCsConversation(input.conversationId, { unread: false });
+      return { success: true } as const;
     }),
   }),
 });

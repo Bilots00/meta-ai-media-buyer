@@ -310,3 +310,39 @@ export const userSettings = mysqlTable("user_settings", {
 });
 
 export type UserSetting = typeof userSettings.$inferSelect;
+
+// ─── Customer Care: Conversations ─────────────────────────────────────────────
+export const csConversations = mysqlTable("cs_conversations", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  channel: varchar("channel", { length: 32 }).notNull(),
+  customerName: varchar("customerName", { length: 255 }),
+  customerHandle: varchar("customerHandle", { length: 255 }).notNull(),
+  status: mysqlEnum("status", ["open", "ai_handled", "needs_human", "archived"]).default("open").notNull(),
+  unread: boolean("unread").default(true).notNull(),
+  starred: boolean("starred").default(false).notNull(),
+  flagReason: text("flagReason"),
+  channelUrl: text("channelUrl"),
+  lastMessageAt: timestamp("lastMessageAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type CsConversation = typeof csConversations.$inferSelect;
+
+// ─── Customer Care: Messages ──────────────────────────────────────────────────
+export const csMessages = mysqlTable("cs_messages", {
+  id: int("id").autoincrement().primaryKey(),
+  conversationId: int("conversationId").notNull(),
+  direction: mysqlEnum("direction", ["in", "out"]).notNull(),
+  sender: mysqlEnum("sender", ["customer", "ai", "human"]).notNull(),
+  text: text("text").notNull(),
+  status: mysqlEnum("status", ["new", "handled"]).default("new").notNull(),
+  handledBy: mysqlEnum("handledBy", ["claude", "openai", "human"]),
+  needsHuman: boolean("needsHuman").default(false).notNull(),
+  reason: text("reason"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  handledAt: timestamp("handledAt"),
+});
+
+export type CsMessage = typeof csMessages.$inferSelect;

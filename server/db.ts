@@ -1,6 +1,6 @@
 import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, metaAccounts, campaigns, adSets, ads, kpiSnapshots, goals, agentLogs, abTests, alerts, copyGenerations, trackingConfigs, userSettings } from "../drizzle/schema";
+import { InsertUser, users, metaAccounts, campaigns, adSets, ads, kpiSnapshots, goals, agentLogs, abTests, alerts, copyGenerations, trackingConfigs, userSettings, csConversations, csMessages } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -310,4 +310,100 @@ export async function upsertUserSetting(userId: number, key: string, value: stri
   const db = await getDb();
   if (!db) return;
   await db.insert(userSettings).values({ userId, settingKey: key, settingValue: value }).onDuplicateKeyUpdate({ set: { settingValue: value } });
+}
+
+// ─── Customer Care ────────────────────────────────────────────────────────────
+export async function upsertCsConversation(data: {
+  userId: number; channel: string; customerName?: string | null; customerHandle: string; channelUrl?: string | null;
+}): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const existing = await db.select().from(csConversations)
+    .where(and(eq(csConversations.channel, data.channel), eq(csConversations.customerHandle, data.customerHandle)))
+    .limit(1);
+  if (existing.length > 0) {
+    const row = existing[0];
+    await db.update(csConversations).set({
+      customerName: data.customerName ?? row.customerName,
+      channelUrl: data.channelUrl ?? row.channelUrl,
+      status: row.status === "archived" ? "open" : row.status,
+      unread: true,
+      lastMessageAt: new Date(),
+    }).where(eq(csConversations.id, row.id));
+    return row.id;
+  }
+  const r = await db.insert(csConversations).values({
+    userId: data.userId, channel: data.channel, customerName: data.customerName ?? null,
+    customerHandle: data.customerHandle, channelUrl: data.channelUrl ?? null,
+    status: "open", unread: true,
+  });
+  return Number((r as unknown as { insertId: number }[])[0].insertId);
+}
+
+export async function insertCsMessage(data: typeof csMessages.$inferInsert): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const r = await db.insert(csMessages).values(data);
+  return Number((r as unknown as { insertId: number }[])[0].insertId);
+}
+
+export async function getCsConversationsForUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(csConversations).where(eq(csConversations.userId, userId)).orderBy(desc(csConversations.lastMessageAt)).limit(200);
+}
+
+export async function getCsMessagesForConversation(conversationId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(csMessages).where(eq(csMessages.conversationId, conversationId)).orderBy(csMessages.createdAt);
+}
+
+export async function getPendingCsMessages(limit = 50) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    messageId: csMessages.id,
+    conversationId: csMessages.conversationId,
+    text: csMessages.text,
+    createdAt: csMessages.createdAt,
+    channel: csConversations.channel,
+    customerName: csConversations.customerName,
+    customerHandle: csConversations.customerHandle,
+  }).from(csMessages)
+    .innerJoin(csConversations, eq(csMessages.conversationId, csConversations.id))
+    .where(and(eq(csMessages.direction, "in"), eq(csMessages.status, "new")))
+    .orderBy(csMessages.createdAt).limit(limit);
+}
+
+export async function recordCsReply(params: {
+  conversationId: number; text?: string | null; sender: "ai" | "human"; handledBy: "claude" | "openai" | "human";
+  needsHuman?: boolean; reason?: string | null;
+}): Promise<number | null> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const { conversationId, text, sender, handledBy, needsHuman, reason } = params;
+  await db.update(csMessages).set({ status: "handled", handledBy, handledAt: new Date() })
+    .where(and(eq(csMessages.conversationId, conversationId), eq(csMessages.direction, "in"), eq(csMessages.status, "new")));
+  let messageId: number | null = null;
+  if (text && text.trim()) {
+    const r = await db.insert(csMessages).values({
+      conversationId, direction: "out", sender, text, status: "handled", handledBy,
+      needsHuman: needsHuman ?? false, reason: reason ?? null,
+    });
+    messageId = Number((r as unknown as { insertId: number }[])[0].insertId);
+  }
+  await db.update(csConversations).set({
+    status: needsHuman ? "needs_human" : "ai_handled",
+    flagReason: needsHuman ? (reason ?? null) : null,
+    unread: needsHuman ? true : false,
+    lastMessageAt: new Date(),
+  }).where(eq(csConversations.id, conversationId));
+  return messageId;
+}
+
+export async function updateCsConversation(id: number, data: Partial<typeof csConversations.$inferInsert>) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(csConversations).set({ ...data, updatedAt: new Date() }).where(eq(csConversations.id, id));
 }
