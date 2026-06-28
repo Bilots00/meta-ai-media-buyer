@@ -16,7 +16,7 @@ import {
   getCopyGenerationsByUserId, insertCopyGeneration, updateCopyGenerationSelection,
   getTrackingConfigByAccount, upsertTrackingConfig,
   getAllUserSettings, upsertUserSetting,
-  getCsConversationsForUser, getCsMessagesForConversation, recordCsReply, updateCsConversation,
+  getCsConversationsForUser, getCsMessagesForConversation, recordCsReply, updateCsConversation, getCsConversationById,
 } from "./db";
 import {
   getAdAccountInfo, getMetaCampaigns, createMetaCampaign,
@@ -620,8 +620,23 @@ export const appRouter = router({
       conversationId: z.number(),
       text: z.string().min(1),
     })).mutation(async ({ input }) => {
+      const convo = await getCsConversationById(input.conversationId);
+      let sent = false;
+      if (convo) {
+        const sendUrl = process.env.CS_SEND_URL || "https://primary-production-19a9c.up.railway.app/webhook/cs-send-db";
+        try {
+          const r = await fetch(sendUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-care-secret": process.env.CARE_WEBHOOK_SECRET ?? "" },
+            body: JSON.stringify({ channel: convo.channel, to: convo.customerHandle, text: input.text }),
+          });
+          sent = r.ok;
+        } catch {
+          sent = false;
+        }
+      }
       await recordCsReply({ conversationId: input.conversationId, text: input.text, sender: "human", handledBy: "human" });
-      return { success: true } as const;
+      return { success: true, sent } as const;
     }),
 
     markResolved: protectedProcedure.input(z.object({ conversationId: z.number() })).mutation(async ({ input }) => {

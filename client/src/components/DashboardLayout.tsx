@@ -101,7 +101,12 @@ function NavGroup({
                 onClick={() => navigate(item.path)}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-150 ${isActive ? "sidebar-item-active" : "text-muted-foreground hover:text-foreground hover:bg-accent"}`}
               >
-                <Icon className={`shrink-0 ${isActive ? "text-primary" : ""}`} style={{ width: 17, height: 17 }} />
+                <span className="relative shrink-0 flex items-center justify-center">
+                  <Icon className={`${isActive ? "text-primary" : ""}`} style={{ width: 17, height: 17 }} />
+                  {!sidebarOpen && badgeCount > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 flex items-center justify-center rounded-full text-[9px] font-bold leading-none" style={{ minWidth: 14, height: 14, padding: "0 3px", background: "oklch(0.55 0.22 25)", color: "white" }}>{badgeCount > 9 ? "9+" : badgeCount}</span>
+                  )}
+                </span>
                 {sidebarOpen && (
                   <div className="flex-1 overflow-hidden">
                     <div className="flex items-center justify-between">

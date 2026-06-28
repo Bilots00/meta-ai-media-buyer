@@ -7,6 +7,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Channel = "ig_dm" | "ig_comment" | "facebook" | "email" | "whatsapp";
@@ -41,8 +42,14 @@ export default function CustomerCare() {
   const utils = trpc.useUtils();
   const listQuery = trpc.customerCare.list.useQuery(undefined, { refetchInterval: 15000, refetchOnWindowFocus: true });
   const convos = (listQuery.data ?? []) as unknown as Conversation[];
-  const sendReplyM = trpc.customerCare.sendReply.useMutation({ onSuccess: () => { setReply(""); utils.customerCare.list.invalidate(); } });
+  const sendReplyM = trpc.customerCare.sendReply.useMutation({ onSuccess: (data) => {
+    setReply("");
+    utils.customerCare.list.invalidate();
+    if (data?.sent) toast.success("Risposta inviata al cliente");
+    else toast("Risposta registrata. Per l'invio reale al cliente attiva il workflow 'CS Send' in n8n.", { duration: 6000 });
+  } });
   const resolveM = trpc.customerCare.markResolved.useMutation({ onSuccess: () => utils.customerCare.list.invalidate() });
+  const markReadM = trpc.customerCare.markRead.useMutation({ onSuccess: () => utils.customerCare.list.invalidate() });
 
   const settingsQuery = trpc.settings.getAll.useQuery(undefined, { refetchOnWindowFocus: false });
   const autopilot = settingsQuery.data?.cs_autopilot === "true";
@@ -143,7 +150,7 @@ export default function CustomerCare() {
             {list.map((c) => {
               const ch = CHANNELS[c.channel]; const ChIcon = ch.icon; const active = c.id === selected?.id;
               return (
-                <button key={c.id} onClick={() => { setSelectedId(c.id); setReply(""); }}
+                <button key={c.id} onClick={() => { setSelectedId(c.id); setReply(""); if (c.unread) markReadM.mutate({ conversationId: Number(c.id) }); }}
                   className="w-full text-left p-3 flex gap-3 transition-colors"
                   style={{ background: active ? "oklch(0.16 0.02 265)" : "transparent", borderBottom: "1px solid oklch(0.17 0.015 260)", borderLeft: active ? "2px solid oklch(0.65 0.2 265)" : "2px solid transparent" }}>
                   <div className="relative shrink-0">

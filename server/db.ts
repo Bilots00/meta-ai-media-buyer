@@ -396,10 +396,19 @@ export async function recordCsReply(params: {
   await db.update(csConversations).set({
     status: needsHuman ? "needs_human" : "ai_handled",
     flagReason: needsHuman ? (reason ?? null) : null,
-    unread: needsHuman ? true : false,
+    // AI drafts/escalations keep the thread UNREAD so Andrea sees there is something to review;
+    // a human reply means Andrea already handled it, so mark it read.
+    unread: handledBy !== "human",
     lastMessageAt: new Date(),
   }).where(eq(csConversations.id, conversationId));
   return messageId;
+}
+
+export async function getCsConversationById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(csConversations).where(eq(csConversations.id, id)).limit(1);
+  return result[0];
 }
 
 export async function updateCsConversation(id: number, data: Partial<typeof csConversations.$inferInsert>) {
