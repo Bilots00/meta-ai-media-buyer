@@ -63,16 +63,39 @@ export function registerCareRoutes(app: Express) {
     }
   });
 
-  // n8n / agent -> read runtime config (e.g. whether AI autopilot auto-send is ON)
+  // Map a raw channel name (or a group name) to one of the 4 config groups.
+  function channelGroup(raw: unknown): "whatsapp" | "email" | "instagram" | "facebook" | "" {
+    const c = String(raw ?? "").toLowerCase();
+    if (!c) return "";
+    if (c.startsWith("ig") || c.includes("instagram")) return "instagram";
+    if (c.startsWith("fb") || c.includes("facebook") || c.includes("messenger")) return "facebook";
+    if (c.includes("mail")) return "email";
+    if (c.includes("whats") || c.includes("wa")) return "whatsapp";
+    return "";
+  }
+
+  // n8n / agent -> read runtime config (autopilot + human-delay). Per-channel when
+  // ?channel= is passed, otherwise the global default (back-compat). Per-channel keys
+  // (cs_autopilot_<group>, cs_delay_seconds_<group>) fall back to the global keys.
   app.get("/api/care/config", async (req: Request, res: Response) => {
     if (!checkSecret(req, res)) return;
     try {
       const settings = await getAllUserSettings(OWNER_USER_ID);
-      res.json({
-        success: true,
-        autopilot: settings.cs_autopilot === "true",
-        delaySeconds: Number(settings.cs_delay_seconds ?? 90) || 90,
-      });
+      const group = channelGroup(req.query.channel);
+
+      const globalAuto = settings.cs_autopilot === "true";
+      const globalDelay = Number(settings.cs_delay_seconds ?? 90) || 90;
+
+      let autopilot = globalAuto;
+      let delaySeconds = globalDelay;
+      if (group) {
+        const a = settings[`cs_autopilot_${group}`];
+        const d = settings[`cs_delay_seconds_${group}`];
+        if (a != null) autopilot = a === "true";
+        if (d != null) delaySeconds = Number(d) || globalDelay;
+      }
+
+      res.json({ success: true, channel: group || null, autopilot, delaySeconds });
     } catch (err) {
       console.warn("[care/config] error:", err);
       res.status(500).json({ error: "config failed" });

@@ -28,6 +28,15 @@ const CHANNELS: Record<Channel, { label: string; icon: ElementType; color: strin
   whatsapp:   { label: "WhatsApp",     icon: MessageCircle, color: "oklch(0.6 0.18 145)" },
 };
 
+// The 4 channel groups for which AI autopilot + reply-delay can be set separately.
+// Instagram covers both IG DM and IG comments.
+const AUTO_CHANNELS: { group: string; label: string; icon: ElementType; color: string }[] = [
+  { group: "whatsapp",  label: "WhatsApp",  icon: MessageCircle, color: "oklch(0.6 0.18 145)" },
+  { group: "email",     label: "Email",     icon: Mail,          color: "oklch(0.72 0.18 60)" },
+  { group: "instagram", label: "Instagram", icon: Instagram,     color: "oklch(0.65 0.2 340)" },
+  { group: "facebook",  label: "Facebook",  icon: Facebook,      color: "oklch(0.5 0.18 265)" },
+];
+
 // Conversations now come from the DB (the n8n "ear" writes inbound messages, the
 // Claude agent / OpenAI fallback write replies) via trpc.customerCare.list.
 const fmtCount = (n: number) => (n > 99 ? "99+" : String(n));
@@ -51,10 +60,14 @@ export default function CustomerCare() {
   const resolveM = trpc.customerCare.markResolved.useMutation({ onSuccess: () => utils.customerCare.list.invalidate() });
   const markReadM = trpc.customerCare.markRead.useMutation({ onSuccess: () => utils.customerCare.list.invalidate() });
 
+  const [showAuto, setShowAuto] = useState(false);
   const settingsQuery = trpc.settings.getAll.useQuery(undefined, { refetchOnWindowFocus: false });
-  const autopilot = settingsQuery.data?.cs_autopilot === "true";
-  const delaySeconds = Number(settingsQuery.data?.cs_delay_seconds ?? 90) || 90;
   const setSetting = trpc.settings.set.useMutation({ onSuccess: () => utils.settings.getAll.invalidate() });
+  const s = settingsQuery.data ?? {};
+  // Per-channel autopilot + delay, with fallback to the global default keys.
+  const autoOf = (g: string) => (s[`cs_autopilot_${g}`] ?? s.cs_autopilot) === "true";
+  const delayOf = (g: string) => Number(s[`cs_delay_seconds_${g}`] ?? s.cs_delay_seconds ?? 90) || 90;
+  const autoOnCount = AUTO_CHANNELS.filter((c) => autoOf(c.group)).length;
 
   const counts = {
     all: convos.filter((c) => c.status !== "archived").length,
@@ -99,31 +112,58 @@ export default function CustomerCare() {
             <h1 className="text-lg font-bold">Customer Care</h1>
             <p className="text-xs text-muted-foreground">Tutte le conversazioni clienti (DM, commenti, email, WhatsApp) in un unico posto</p>
           </div>
-          <div className="ml-auto flex items-center gap-2 text-xs px-3 py-2 rounded-xl" style={{ background: "oklch(0.16 0.015 260)", color: "oklch(0.62 0.02 260)" }} title="Quanto l'AI aspetta prima di rispondere (per sembrare umana). Le domande sui prodotti e i clienti arrabbiati hanno comunque risposta immediata.">
-            <span>Attesa risposta</span>
-            <input type="number" min={0} defaultValue={delaySeconds} key={delaySeconds}
-              onBlur={(e) => { const v = Math.max(0, parseInt(e.target.value || "90", 10) || 90); if (v !== delaySeconds) setSetting.mutate({ key: "cs_delay_seconds", value: String(v) }); }}
-              className="w-14 bg-transparent outline-none text-foreground text-right" style={{ borderBottom: "1px solid oklch(0.3 0.02 260)" }} />
-            <span>sec</span>
-          </div>
           <button
-            onClick={() => setSetting.mutate({ key: "cs_autopilot", value: String(!autopilot) })}
-            disabled={setSetting.isPending}
-            title="Quando ON, l'AI risponde da sola a DM e commenti (escala a te i casi incerti). Quando OFF, prepara solo bozze da approvare."
-            className="flex items-center gap-2 text-xs px-3 py-2 rounded-xl transition-colors"
+            onClick={() => setShowAuto((v) => !v)}
+            title="Imposta, per ogni canale, se l'AI risponde da sola e quanti secondi aspetta prima di rispondere."
+            className="ml-auto flex items-center gap-2 text-xs px-3 py-2 rounded-xl transition-colors"
             style={{
-              background: autopilot ? "oklch(0.6 0.18 145 / 0.12)" : "oklch(0.3 0.02 260 / 0.35)",
-              border: autopilot ? "1px solid oklch(0.6 0.18 145 / 0.3)" : "1px solid oklch(0.3 0.02 260)",
-              color: autopilot ? "oklch(0.7 0.16 145)" : "oklch(0.62 0.02 260)",
+              background: autoOnCount > 0 ? "oklch(0.6 0.18 145 / 0.12)" : "oklch(0.3 0.02 260 / 0.35)",
+              border: autoOnCount > 0 ? "1px solid oklch(0.6 0.18 145 / 0.3)" : "1px solid oklch(0.3 0.02 260)",
+              color: autoOnCount > 0 ? "oklch(0.7 0.16 145)" : "oklch(0.62 0.02 260)",
             }}
           >
             <Bot className="w-3.5 h-3.5" />
-            <span>Risposte automatiche AI: <b>{autopilot ? "ON" : "OFF"}</b></span>
-            <span className="inline-flex items-center rounded-full ml-1" style={{ width: 30, height: 16, background: autopilot ? "oklch(0.6 0.18 145)" : "oklch(0.3 0.02 260)", position: "relative" }}>
-              <span style={{ position: "absolute", top: 2, left: autopilot ? 16 : 2, width: 12, height: 12, borderRadius: "9999px", background: "white", transition: "left .15s" }} />
-            </span>
+            <span>Risposte automatiche AI: <b>{autoOnCount}/4 canali ON</b></span>
           </button>
         </div>
+
+        {/* Per-channel automation panel */}
+        {showAuto && (
+          <div className="mt-4 pt-4 grid gap-2" style={{ borderTop: "1px solid oklch(0.2 0.015 260)" }}>
+            <p className="text-xs text-muted-foreground mb-1">Per ogni canale: <b>ON</b> = l'AI risponde da sola (escala a te i casi incerti) · <b>OFF</b> = prepara solo bozze. L'<b>attesa</b> è quanti secondi aspetta prima di rispondere, per sembrare umana (domande sui prodotti e clienti arrabbiati rispondono comunque subito).</p>
+            {AUTO_CHANNELS.map((c) => {
+              const Icon = c.icon; const on = autoOf(c.group); const d = delayOf(c.group);
+              return (
+                <div key={c.group} className="flex items-center gap-3 px-3 py-2 rounded-xl" style={{ background: "oklch(0.16 0.015 260)" }}>
+                  <Icon className="w-4 h-4 shrink-0" style={{ color: c.color }} />
+                  <span className="text-sm w-24 shrink-0">{c.label}</span>
+                  <div className="flex items-center gap-1.5 text-xs ml-auto" style={{ color: "oklch(0.62 0.02 260)" }}>
+                    <span>attesa</span>
+                    <input type="number" min={0} defaultValue={d} key={c.group + d}
+                      onBlur={(e) => { const v = Math.max(0, parseInt(e.target.value || "90", 10) || 90); if (v !== d) setSetting.mutate({ key: `cs_delay_seconds_${c.group}`, value: String(v) }); }}
+                      className="w-14 bg-transparent outline-none text-foreground text-right" style={{ borderBottom: "1px solid oklch(0.3 0.02 260)" }} />
+                    <span>sec</span>
+                  </div>
+                  <button
+                    onClick={() => setSetting.mutate({ key: `cs_autopilot_${c.group}`, value: String(!on) })}
+                    disabled={setSetting.isPending}
+                    className="flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-lg transition-colors shrink-0"
+                    style={{
+                      background: on ? "oklch(0.6 0.18 145 / 0.12)" : "oklch(0.3 0.02 260 / 0.35)",
+                      border: on ? "1px solid oklch(0.6 0.18 145 / 0.3)" : "1px solid oklch(0.3 0.02 260)",
+                      color: on ? "oklch(0.7 0.16 145)" : "oklch(0.62 0.02 260)",
+                    }}
+                  >
+                    <b>{on ? "ON" : "OFF"}</b>
+                    <span className="inline-flex items-center rounded-full" style={{ width: 30, height: 16, background: on ? "oklch(0.6 0.18 145)" : "oklch(0.3 0.02 260)", position: "relative" }}>
+                      <span style={{ position: "absolute", top: 2, left: on ? 16 : 2, width: 12, height: 12, borderRadius: "9999px", background: "white", transition: "left .15s" }} />
+                    </span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="flex gap-4 flex-1 min-h-0">
