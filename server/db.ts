@@ -376,6 +376,17 @@ export async function getPendingCsMessages(limit = 50) {
     .orderBy(csMessages.createdAt).limit(limit);
 }
 
+// Whether a conversation still has an inbound message not yet handled (by Claude/OpenAI/human).
+// Used by the n8n ears to decide if they should run the OpenAI fallback or defer to the local Claude agent.
+export async function conversationHasPending(conversationId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const rows = await db.select({ id: csMessages.id }).from(csMessages)
+    .where(and(eq(csMessages.conversationId, conversationId), eq(csMessages.direction, "in"), eq(csMessages.status, "new")))
+    .limit(1);
+  return rows.length > 0;
+}
+
 export async function recordCsReply(params: {
   conversationId: number; text?: string | null; sender: "ai" | "human"; handledBy: "claude" | "openai" | "human";
   needsHuman?: boolean; reason?: string | null;

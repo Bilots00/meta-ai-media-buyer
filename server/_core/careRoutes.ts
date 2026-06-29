@@ -5,7 +5,12 @@ import {
   getPendingCsMessages,
   recordCsReply,
   getAllUserSettings,
+  upsertUserSetting,
+  conversationHasPending,
 } from "../db";
+
+// The local Claude agent is considered "online" if it pinged the heartbeat within this window.
+const LOCAL_AGENT_ONLINE_MS = 120_000;
 
 // Customer Care server-to-server endpoints, used by the n8n workflow (the always-on
 // "ear" + OpenAI fallback) and by the local Claude CS agent. Protected by a shared
@@ -95,10 +100,42 @@ export function registerCareRoutes(app: Express) {
         if (d != null) delaySeconds = Number(d) || globalDelay;
       }
 
-      res.json({ success: true, channel: group || null, autopilot, delaySeconds });
+      const lastSeen = Number(settings.cs_local_agent_last_seen ?? 0);
+      const localAgentOnline = lastSeen > 0 && Date.now() - lastSeen < LOCAL_AGENT_ONLINE_MS;
+
+      res.json({ success: true, channel: group || null, autopilot, delaySeconds, localAgentOnline });
     } catch (err) {
       console.warn("[care/config] error:", err);
       res.status(500).json({ error: "config failed" });
+    }
+  });
+
+  // Local Claude agent -> heartbeat so the server (and the n8n fallback) know the PC is on
+  app.post("/api/care/heartbeat", async (req: Request, res: Response) => {
+    if (!checkSecret(req, res)) return;
+    try {
+      await upsertUserSetting(OWNER_USER_ID, "cs_local_agent_last_seen", String(Date.now()));
+      res.json({ success: true });
+    } catch (err) {
+      console.warn("[care/heartbeat] error:", err);
+      res.status(500).json({ error: "heartbeat failed" });
+    }
+  });
+
+  // n8n fallback -> is this conversation still unhandled? (so n8n only runs OpenAI if Claude didn't)
+  app.get("/api/care/status", async (req: Request, res: Response) => {
+    if (!checkSecret(req, res)) return;
+    try {
+      const conversationId = Number(req.query.conversationId);
+      if (!conversationId) {
+        res.status(400).json({ error: "conversationId is required" });
+        return;
+      }
+      const pending = await conversationHasPending(conversationId);
+      res.json({ success: true, conversationId, pending, handled: !pending });
+    } catch (err) {
+      console.warn("[care/status] error:", err);
+      res.status(500).json({ error: "status failed" });
     }
   });
 
