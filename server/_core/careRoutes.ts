@@ -122,6 +122,24 @@ export function registerCareRoutes(app: Express) {
     }
   });
 
+  // Set a Customer Care setting (owner-scoped, secret-protected). Used to flip per-channel
+  // autopilot (e.g. cs_autopilot_whatsapp=false = draft-only) without the UI.
+  app.post("/api/care/setting", async (req: Request, res: Response) => {
+    if (!checkSecret(req, res)) return;
+    try {
+      const { key, value } = (req.body ?? {}) as { key?: string; value?: unknown };
+      if (!key || !/^cs_[a-z0-9_]+$/i.test(key)) {
+        res.status(400).json({ error: "valid cs_* key required" });
+        return;
+      }
+      await upsertUserSetting(OWNER_USER_ID, key, String(value));
+      res.json({ success: true, key, value: String(value) });
+    } catch (err) {
+      console.warn("[care/setting] error:", err);
+      res.status(500).json({ error: "setting failed" });
+    }
+  });
+
   // n8n fallback -> is this conversation still unhandled? (so n8n only runs OpenAI if Claude didn't)
   app.get("/api/care/status", async (req: Request, res: Response) => {
     if (!checkSecret(req, res)) return;
