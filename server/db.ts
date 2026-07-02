@@ -1,6 +1,6 @@
 import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, metaAccounts, campaigns, adSets, ads, kpiSnapshots, goals, agentLogs, abTests, alerts, copyGenerations, trackingConfigs, userSettings, csConversations, csMessages } from "../drizzle/schema";
+import { InsertUser, users, metaAccounts, campaigns, adSets, ads, kpiSnapshots, goals, agentLogs, abTests, alerts, copyGenerations, trackingConfigs, userSettings, csConversations, csMessages, socialDrafts, socialChatMessages } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -420,6 +420,72 @@ export async function deleteCsConversation(id: number): Promise<void> {
   if (!db) return;
   await db.delete(csMessages).where(eq(csMessages.conversationId, id));
   await db.delete(csConversations).where(eq(csConversations.id, id));
+}
+
+// ─── Social: AI Manager chat + Drafts ─────────────────────────────────────────
+export async function insertSocialChatMessage(data: typeof socialChatMessages.$inferInsert): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const r = await db.insert(socialChatMessages).values(data);
+  return Number((r as unknown as { insertId: number }[])[0].insertId);
+}
+
+export async function getPendingSocialChat(limit = 20) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    messageId: socialChatMessages.id,
+    userId: socialChatMessages.userId,
+    text: socialChatMessages.text,
+    createdAt: socialChatMessages.createdAt,
+  }).from(socialChatMessages)
+    .where(and(eq(socialChatMessages.role, "user"), eq(socialChatMessages.status, "new")))
+    .orderBy(desc(socialChatMessages.createdAt))
+    .limit(limit);
+}
+
+export async function getSocialChatMessages(userId: number, limit = 100) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(socialChatMessages)
+    .where(eq(socialChatMessages.userId, userId))
+    .orderBy(desc(socialChatMessages.createdAt))
+    .limit(limit);
+}
+
+export async function recordSocialChatReply(params: { userId: number; text: string }): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(socialChatMessages)
+    .set({ status: "handled", handledAt: new Date() })
+    .where(and(eq(socialChatMessages.userId, params.userId), eq(socialChatMessages.role, "user"), eq(socialChatMessages.status, "new")));
+  const r = await db.insert(socialChatMessages).values({ userId: params.userId, role: "assistant", text: params.text, status: "handled" });
+  return Number((r as unknown as { insertId: number }[])[0].insertId);
+}
+
+export async function insertSocialDraft(data: typeof socialDrafts.$inferInsert): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const r = await db.insert(socialDrafts).values(data);
+  return Number((r as unknown as { insertId: number }[])[0].insertId);
+}
+
+export async function getSocialDraftsForUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(socialDrafts).where(eq(socialDrafts.userId, userId)).orderBy(desc(socialDrafts.createdAt)).limit(200);
+}
+
+export async function updateSocialDraft(id: number, patch: Partial<typeof socialDrafts.$inferInsert>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(socialDrafts).set(patch).where(eq(socialDrafts.id, id));
+}
+
+export async function deleteSocialDraft(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(socialDrafts).where(eq(socialDrafts.id, id));
 }
 
 export async function getCsConversationById(id: number) {

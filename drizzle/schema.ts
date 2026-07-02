@@ -346,3 +346,37 @@ export const csMessages = mysqlTable("cs_messages", {
 });
 
 export type CsMessage = typeof csMessages.$inferSelect;
+
+// ─── Social: Drafts (AI-generated content, review-first) ──────────────────────
+export const socialDrafts = mysqlTable("social_drafts", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  platform: varchar("platform", { length: 32 }).notNull(),
+  format: varchar("format", { length: 32 }).notNull(),
+  title: varchar("title", { length: 255 }),
+  caption: text("caption"),
+  hashtags: text("hashtags"),
+  assets: json("assets"),
+  status: mysqlEnum("status", ["draft", "scheduled", "published", "rejected"]).default("draft").notNull(),
+  scheduledAt: timestamp("scheduledAt"),
+  createdBy: varchar("createdBy", { length: 64 }).default("ai"),
+  sourceUrl: text("sourceUrl"),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type SocialDraft = typeof socialDrafts.$inferSelect;
+
+// ─── Social: AI Manager chat (local-Claude-primary, mirrors CS) ───────────────
+export const socialChatMessages = mysqlTable("social_chat_messages", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  role: mysqlEnum("role", ["user", "assistant"]).notNull(),
+  text: text("text").notNull(),
+  status: mysqlEnum("status", ["new", "handled"]).default("new").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  handledAt: timestamp("handledAt"),
+});
+
+export type SocialChatMessage = typeof socialChatMessages.$inferSelect;

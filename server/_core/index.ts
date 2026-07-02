@@ -6,6 +6,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { registerCareRoutes } from "./careRoutes";
+import { registerSocialRoutes } from "./socialRoutes";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -76,6 +77,41 @@ async function runMigrations() {
   } catch (err) {
     console.warn("[Migrate] tabelle customer care non create:", err);
   }
+  try {
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS social_drafts (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL,
+      platform VARCHAR(32) NOT NULL,
+      format VARCHAR(32) NOT NULL,
+      title VARCHAR(255),
+      caption TEXT,
+      hashtags TEXT,
+      assets JSON,
+      status ENUM('draft','scheduled','published','rejected') NOT NULL DEFAULT 'draft',
+      scheduledAt TIMESTAMP NULL,
+      createdBy VARCHAR(64) DEFAULT 'ai',
+      sourceUrl TEXT,
+      notes TEXT,
+      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_social_drafts_user (userId),
+      INDEX idx_social_drafts_status (status)
+    )`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS social_chat_messages (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL,
+      role ENUM('user','assistant') NOT NULL,
+      text TEXT NOT NULL,
+      status ENUM('new','handled') NOT NULL DEFAULT 'new',
+      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      handledAt TIMESTAMP NULL,
+      INDEX idx_social_chat_user (userId),
+      INDEX idx_social_chat_status (status)
+    )`);
+    console.log("[Migrate] Tabelle social_drafts + social_chat_messages pronte");
+  } catch (err) {
+    console.warn("[Migrate] tabelle social non create:", err);
+  }
 }
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -107,6 +143,7 @@ async function startServer() {
   registerStorageProxy(app);
   registerOAuthRoutes(app);
   registerCareRoutes(app);
+  registerSocialRoutes(app);
   // tRPC API
   app.use(
     "/api/trpc",
