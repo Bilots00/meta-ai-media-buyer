@@ -211,7 +211,7 @@ function ChatView() {
   };
 
   return (
-    <div className="rounded-2xl overflow-hidden relative" style={{ background: "#f7f5f1", color: "#1f2430" }}>
+    <div className="rounded-2xl relative" style={{ background: "#f7f5f1", color: "#1f2430" }}>
       {/* Conversation area (no forced height — sticky footer handles the bottom) */}
       <div>
         <div className="mx-auto w-full px-6 py-5 pb-28" style={{ maxWidth: 820 }}>
@@ -259,7 +259,7 @@ function ChatView() {
               <div className="flex gap-3">
                 <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white" style={{ background: "#0075E3" }}>AI</div>
                 <div className="rounded-2xl px-4 py-3 text-xs flex items-center gap-2" style={{ background: "#fff", border: "1px solid #e8e6e0", color: "#8a8f98" }}>
-                  <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: "#8a8f98" }} /> In attesa del tuo Claude locale…
+                  <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: "#8a8f98" }} /> L'AI Manager sta scrivendo…
                 </div>
               </div>
             )}
