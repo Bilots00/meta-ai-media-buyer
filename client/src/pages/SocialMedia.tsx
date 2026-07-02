@@ -383,7 +383,21 @@ function CreateView() {
             <Textarea value={brief} onChange={(e) => setBrief(e.target.value)} placeholder="es. Carosello ispirazionale per sognatori, tema 'non mollare'…" rows={3} className="resize-none" style={{ background: "oklch(0.16 0.015 260)", border: "1px solid oklch(0.22 0.015 260)" }} />
           </div>
           <div className="space-y-2">
-            <label className="text-sm text-muted-foreground">Cartella reference (PC)</label>
+            <label className="text-sm text-muted-foreground flex items-center justify-between">
+              <span>Cartella reference (sul VPS/PC dell'agente)</span>
+              <span className="text-[10px] text-muted-foreground/70">i browser non aprono il dialog di Windows · scegli o incolla</span>
+            </label>
+            <div className="flex flex-wrap gap-1.5 mb-1">
+              {[
+                { label: "IG Daily (default)", path: "E:\\IDriveLocal\\ALL FILES -Cloud-Drive_andrea.bilotta00@gmail.com\\E-commerce\\MARKETING - PNL, Copy & Vendita\\Instagram DAILY post (Organic)" },
+                { label: "UGC Creative", path: "E:\\IDriveLocal\\ALL FILES -Cloud-Drive_andrea.bilotta00@gmail.com\\E-commerce\\MARKETING - PNL, Copy & Vendita\\Instagram DAILY post (Organic)\\UGC Creative" },
+                { label: "IG Fast grow", path: "E:\\IDriveLocal\\ALL FILES -Cloud-Drive_andrea.bilotta00@gmail.com\\E-commerce\\MARKETING - PNL, Copy & Vendita\\Instagram DAILY post (Organic)\\IG Fast grow" },
+                { label: "Dream Home", path: "E:\\IDriveLocal\\ALL FILES -Cloud-Drive_andrea.bilotta00@gmail.com\\E-commerce\\MARKETING - PNL, Copy & Vendita\\Instagram DAILY post (Organic)\\Dream Home" },
+                { label: "TOP Brands", path: "E:\\IDriveLocal\\ALL FILES -Cloud-Drive_andrea.bilotta00@gmail.com\\E-commerce\\MARKETING - PNL, Copy & Vendita\\Instagram DAILY post (Organic)\\TOP Brands Inspiration (Profiles, IG Pages & Influencers)" },
+              ].map((p) => (
+                <button key={p.label} type="button" onClick={() => setFolder(p.path)} className="text-xs px-2 py-1 rounded-full" style={{ border: "1px solid oklch(0.22 0.015 260)", background: folder === p.path ? "oklch(0.65 0.2 265 / 0.15)" : "transparent", color: folder === p.path ? "oklch(0.75 0.15 265)" : "oklch(0.65 0.02 260)" }}>{p.label}</button>
+              ))}
+            </div>
             <input value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="E:\…\Instagram DAILY post (Organic)" className="w-full text-sm rounded-lg px-3 py-2 text-foreground" style={{ border: "1px solid oklch(0.22 0.015 260)", background: "oklch(0.16 0.015 260)" }} />
           </div>
           <div className="space-y-2">
