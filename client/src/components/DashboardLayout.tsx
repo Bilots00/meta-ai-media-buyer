@@ -34,10 +34,10 @@ const GELATO_ITEMS = [
 ];
 
 const SOCIAL_ITEMS = [
-  { icon: Calendar, label: "Calendario", path: "/social/calendar", description: "Contenuti settimana" },
-  { icon: MessageSquare, label: "AI Manager", path: "/social/chat", description: "Strategia & chat" },
-  { icon: PenSquare, label: "Crea Post", path: "/social/create", description: "Generator AI" },
-  { icon: ClipboardList, label: "Bozze", path: "/social/drafts", description: "Post AI da revisionare" },
+  { icon: MessageSquare, label: "AI Manager", path: "/social/chat", description: "Il tuo SMMA AI" },
+  { icon: PenSquare, label: "Crea Post", path: "/social/create", description: "Organic Contents LAB" },
+  { icon: Calendar, label: "Calendario", path: "/social/calendar", description: "Piano mensile & annuale" },
+  { icon: ClipboardList, label: "Bozze", path: "/social/drafts", description: "Bozze da revisionare" },
 ];
 
 const CARE_ITEMS = [
