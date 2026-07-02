@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
-import { Calendar, MessageSquare, PenSquare, Instagram, Facebook, Twitter, Youtube, Send, Sparkles, TrendingUp, Clock, Plus, Image as ImageIcon, Hash, Repeat2, BarChart2 } from "lucide-react";
+import { Calendar, MessageSquare, PenSquare, Instagram, Facebook, Twitter, Youtube, Send, Sparkles, TrendingUp, Clock, Plus, Image as ImageIcon, Hash, Repeat2, BarChart2, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -195,93 +195,94 @@ function ChatView() {
   const [input, setInput] = useState("");
   const [showPrompt, setShowPrompt] = useState(false);
   const [prompt, setPrompt] = useState("");
+  const [attached, setAttached] = useState<string>("");
+  const fileRef = useRef<HTMLInputElement>(null);
   useEffect(() => { if (config.data) setPrompt(config.data.systemPrompt || ""); }, [config.data]);
 
   const messages = chat.data ?? [];
   const waiting = messages.length > 0 && messages[messages.length - 1].pending;
 
   const handleSend = (text?: string) => {
-    const msg = (text ?? input).trim();
+    let msg = (text ?? input).trim();
+    if (attached) msg = (msg ? msg + "\n" : "") + `[allegato: ${attached}]`;
     if (!msg || send.isPending) return;
-    setInput("");
+    setInput(""); setAttached("");
     send.mutate({ text: msg });
   };
 
   return (
-    <div className="flex flex-col h-full" style={{ height: "calc(100vh - 240px)", minHeight: "500px" }}>
-      {/* System prompt (editable) */}
-      <div className="mb-3">
-        <button onClick={() => setShowPrompt((v) => !v)} className="text-xs flex items-center gap-1.5 text-muted-foreground hover:text-foreground">
-          <Sparkles className="w-3.5 h-3.5" /> System prompt {config.data?.systemPrompt ? "(personalizzato)" : "(default)"} · {showPrompt ? "nascondi" : "modifica"}
-        </button>
-        {showPrompt && (
-          <div className="mt-2">
-            <Textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4} placeholder="Sei il Social Media Manager di DreamBrothers. Voce da sognatore, mai vendita sull'organico…" className="resize-none text-sm" style={{ background: "oklch(0.14 0.015 260)", border: "1px solid oklch(0.22 0.015 260)" }} />
-            <div className="flex items-center gap-3 mt-2">
-              <Button size="sm" className="h-8 text-white" style={{ background: "var(--gradient-primary)" }} disabled={saveSetting.isPending} onClick={() => saveSetting.mutate({ key: "social_system_prompt", value: prompt })}>
-                {saveSetting.isPending ? "Salvo…" : "Salva prompt"}
-              </Button>
-              <span className="text-xs text-muted-foreground">Il tuo Claude locale lo userà ad ogni risposta.</span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Suggestions */}
-      <div className="mb-4">
-        <div className="flex flex-wrap gap-2">
-          {AI_SUGGESTIONS.map((s) => (
-            <button key={s} onClick={() => handleSend(s)} className="text-xs px-3 py-1.5 rounded-full border transition-all hover:border-primary hover:text-primary" style={{ border: "1px solid oklch(0.22 0.015 260)", color: "oklch(0.65 0.02 260)" }}>
-              {s}
+    <div className="flex flex-col rounded-2xl overflow-hidden" style={{ height: "calc(100vh - 320px)", minHeight: 440, background: "#f7f5f1", color: "#1f2430" }}>
+      {/* Scrollable conversation (centered, light) */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto w-full px-6 py-5" style={{ maxWidth: 820 }}>
+          {/* System prompt (editable) */}
+          <div className="mb-4">
+            <button onClick={() => setShowPrompt((v) => !v)} className="text-xs flex items-center gap-1.5" style={{ color: "#8a8f98" }}>
+              <Sparkles className="w-3.5 h-3.5" /> System prompt {config.data?.systemPrompt ? "(personalizzato)" : "(default)"} · {showPrompt ? "nascondi" : "modifica"}
             </button>
-          ))}
+            {showPrompt && (
+              <div className="mt-2">
+                <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4} placeholder="Sei il Social Media Manager di DreamBrothers. Voce da sognatore, mai vendita sull'organico…" className="w-full resize-none text-sm rounded-xl p-3 outline-none" style={{ background: "#fff", border: "1px solid #e5e3de", color: "#1f2430" }} />
+                <div className="flex items-center gap-3 mt-2">
+                  <button className="text-xs font-medium text-white rounded-lg px-3 py-1.5" style={{ background: "#0075E3" }} disabled={saveSetting.isPending} onClick={() => saveSetting.mutate({ key: "social_system_prompt", value: prompt })}>{saveSetting.isPending ? "Salvo…" : "Salva prompt"}</button>
+                  <span className="text-xs" style={{ color: "#8a8f98" }}>Il tuo Claude locale lo userà ad ogni risposta.</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {messages.length === 0 && (
+            <div className="mt-10">
+              <div className="text-center mb-6">
+                <div className="text-2xl font-semibold" style={{ color: "#1f2430" }}>Ciao Andrea 👋</div>
+                <div className="text-sm mt-1" style={{ color: "#8a8f98" }}>Sono il tuo AI Manager. Chiedimi strategie, caroselli, analisi — rispondo col tuo Claude locale (Max) e il contesto del brand.</div>
+              </div>
+              <div className="flex flex-wrap gap-2 justify-center">
+                {AI_SUGGESTIONS.map((s) => (
+                  <button key={s} onClick={() => handleSend(s)} className="text-xs px-3 py-1.5 rounded-full" style={{ border: "1px solid #e5e3de", background: "#fff", color: "#4a4f58" }}>{s}</button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-4 mt-4">
+            {messages.map((m) => (
+              <div key={m.id} className={`flex gap-3 ${m.role === "user" ? "flex-row-reverse" : ""}`}>
+                <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-semibold text-white" style={{ background: m.role === "assistant" ? "#0075E3" : "#b6bcc6" }}>{m.role === "assistant" ? "AI" : "A"}</div>
+                <div className="max-w-[80%]">
+                  <div className="rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap" style={{ background: m.role === "assistant" ? "#ffffff" : "#eaf1ff", border: "1px solid #e8e6e0" }}>{m.text}</div>
+                  <div className="text-xs mt-1 px-1" style={{ color: "#a2a7af" }}>{m.when}</div>
+                </div>
+              </div>
+            ))}
+            {waiting && (
+              <div className="flex gap-3">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white" style={{ background: "#0075E3" }}>AI</div>
+                <div className="rounded-2xl px-4 py-3 text-xs flex items-center gap-2" style={{ background: "#fff", border: "1px solid #e8e6e0", color: "#8a8f98" }}>
+                  <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: "#8a8f98" }} /> In attesa del tuo Claude locale…
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto space-y-4 pr-1 mb-4">
-        {messages.length === 0 && (
-          <div className="text-sm text-muted-foreground text-center mt-8 leading-relaxed">
-            Scrivi al tuo <b>AI Manager</b> 🚀<br />Risponde il tuo Claude locale (piano Max) col contesto del brand.
-          </div>
-        )}
-        {messages.map((m) => (
-          <div key={m.id} className={`flex gap-3 ${m.role === "user" ? "flex-row-reverse" : ""}`}>
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 text-sm" style={{ background: m.role === "assistant" ? "var(--gradient-primary)" : "oklch(0.22 0.025 265)", color: "white", fontWeight: 600 }}>
-              {m.role === "assistant" ? "AI" : "A"}
+      {/* Input — always visible at the bottom, centered */}
+      <div className="shrink-0 px-6 pb-5 pt-3" style={{ borderTop: "1px solid #ece9e3", background: "#f7f5f1" }}>
+        <div className="mx-auto w-full" style={{ maxWidth: 820 }}>
+          {attached && (
+            <div className="flex items-center gap-2 text-xs mb-2 px-3 py-1.5 rounded-lg w-fit" style={{ background: "#fff", border: "1px solid #e5e3de", color: "#4a4f58" }}>
+              <Paperclip className="w-3.5 h-3.5" /> {attached}
+              <button onClick={() => setAttached("")} style={{ color: "#a2a7af" }}>✕</button>
             </div>
-            <div className="max-w-[78%]">
-              <div className="rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap" style={{ background: m.role === "assistant" ? "oklch(0.14 0.015 260)" : "oklch(0.65 0.2 265 / 0.15)", border: `1px solid ${m.role === "assistant" ? "oklch(0.22 0.015 260)" : "oklch(0.65 0.2 265 / 0.3)"}` }}>
-                {m.text}
-              </div>
-              <div className="text-xs text-muted-foreground mt-1 px-1">{m.when}</div>
-            </div>
+          )}
+          <div className="flex items-end gap-2 rounded-2xl p-2" style={{ background: "#fff", border: "1px solid #e2e0da", boxShadow: "0 2px 10px rgba(0,0,0,.04)" }}>
+            <input ref={fileRef} type="file" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) setAttached(f.name); }} />
+            <button onClick={() => fileRef.current?.click()} className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center" style={{ color: "#6a6f78" }} title="Allega file"><Paperclip className="w-4 h-4" /></button>
+            <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }} placeholder="Chiedi una strategia, un carosello, un'analisi…" rows={1} className="flex-1 resize-none bg-transparent outline-none text-sm py-2" style={{ color: "#1f2430", maxHeight: 140 }} />
+            <button onClick={() => handleSend()} disabled={!input.trim() && !attached} className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-white" style={{ background: "#0075E3", opacity: (!input.trim() && !attached) ? 0.5 : 1 }}><Send className="w-4 h-4" /></button>
           </div>
-        ))}
-        {waiting && (
-          <div className="flex gap-3">
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold text-white" style={{ background: "var(--gradient-primary)" }}>AI</div>
-            <div className="rounded-2xl px-4 py-3 text-xs text-muted-foreground flex items-center gap-2" style={{ background: "oklch(0.14 0.015 260)", border: "1px solid oklch(0.22 0.015 260)" }}>
-              <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" /> In attesa del tuo Claude locale…
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Input */}
-      <div className="flex gap-3 shrink-0">
-        <Textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-          placeholder="Chiedi una strategia, un carosello, un'analisi… (Invio per inviare)"
-          className="flex-1 resize-none min-h-[48px] max-h-[120px]"
-          rows={2}
-          style={{ background: "oklch(0.14 0.015 260)", border: "1px solid oklch(0.22 0.015 260)" }}
-        />
-        <Button onClick={() => handleSend()} disabled={!input.trim() || send.isPending} className="self-end h-12 w-12 p-0 shrink-0" style={{ background: "var(--gradient-primary)" }}>
-          <Send className="w-4 h-4" />
-        </Button>
+        </div>
       </div>
     </div>
   );
