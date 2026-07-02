@@ -211,10 +211,10 @@ function ChatView() {
   };
 
   return (
-    <div className="rounded-2xl relative" style={{ background: "#f7f5f1", color: "#1f2430" }}>
-      {/* Conversation area (no forced height — sticky footer handles the bottom) */}
-      <div>
-        <div className="mx-auto w-full px-6 py-5 pb-28" style={{ maxWidth: 820 }}>
+    <div className="rounded-2xl relative flex flex-col h-full overflow-hidden" style={{ background: "#f7f5f1", color: "#1f2430" }}>
+      {/* Conversation area — the ONLY thing that scrolls */}
+      <div className="flex-1 overflow-y-auto min-h-0">
+        <div className="mx-auto w-full px-6 py-5" style={{ maxWidth: 820 }}>
           {/* System prompt (editable) */}
           <div className="mb-4">
             <button onClick={() => setShowPrompt((v) => !v)} className="text-xs flex items-center gap-1.5" style={{ color: "#8a8f98" }}>
@@ -267,8 +267,8 @@ function ChatView() {
         </div>
       </div>
 
-      {/* Input — sticky to <main>'s bottom = always visible while messages scroll */}
-      <div className="px-6 pb-5 pt-3" style={{ position: "sticky", bottom: 0, zIndex: 10, borderTop: "1px solid #ece9e3", background: "#f7f5f1" }}>
+      {/* Input — fixed flex child, OUTSIDE the scroll area (can never scroll away) */}
+      <div className="shrink-0 px-6 pb-5 pt-3" style={{ borderTop: "1px solid #ece9e3", background: "#f7f5f1" }}>
         <div className="mx-auto w-full" style={{ maxWidth: 820 }}>
           {attached && (
             <div className="flex items-center gap-2 text-xs mb-2 px-3 py-1.5 rounded-lg w-fit" style={{ background: "#fff", border: "1px solid #e5e3de", color: "#4a4f58" }}>
@@ -494,9 +494,9 @@ export default function SocialMedia() {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className={tab === "chat" ? "flex flex-col gap-6" : "space-y-6"} style={tab === "chat" ? { height: "calc(100dvh - 130px)" } : undefined}>
       {/* Header */}
-      <div className="rounded-2xl p-6 relative overflow-hidden" style={{ background: "oklch(0.14 0.015 260)", border: "1px solid oklch(0.2 0.015 260)" }}>
+      <div className="rounded-2xl p-6 relative overflow-hidden shrink-0" style={{ background: "oklch(0.14 0.015 260)", border: "1px solid oklch(0.2 0.015 260)" }}>
         <div className="absolute inset-0" style={{ background: "var(--gradient-primary)", opacity: 0.04 }} />
         <div className="relative flex items-center gap-4">
           <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: "var(--gradient-primary)" }}>
@@ -522,7 +522,7 @@ export default function SocialMedia() {
       </div>
 
       {/* Tab switcher */}
-      <div className="flex gap-2 p-1 rounded-2xl" style={{ background: "oklch(0.14 0.015 260)", border: "1px solid oklch(0.2 0.015 260)" }}>
+      <div className="flex gap-2 p-1 rounded-2xl shrink-0" style={{ background: "oklch(0.14 0.015 260)", border: "1px solid oklch(0.2 0.015 260)" }}>
         {tabs.map(({ id, icon: Icon, label, desc }) => (
           <button
             key={id}
@@ -541,7 +541,7 @@ export default function SocialMedia() {
 
       {/* Tab content */}
       {tab === "calendar" && <CalendarView />}
-      {tab === "chat" && <ChatView />}
+      {tab === "chat" && <div className="flex-1 min-h-0"><ChatView /></div>}
       {tab === "create" && <CreateView />}
     </div>
   );
