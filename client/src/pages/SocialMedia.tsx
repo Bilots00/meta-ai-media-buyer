@@ -211,10 +211,10 @@ function ChatView() {
   };
 
   return (
-    <div className="flex flex-col rounded-2xl overflow-hidden" style={{ height: "calc(100vh - 320px)", minHeight: 440, background: "#f7f5f1", color: "#1f2430" }}>
-      {/* Scrollable conversation (centered, light) */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full px-6 py-5" style={{ maxWidth: 820 }}>
+    <div className="rounded-2xl overflow-hidden relative" style={{ background: "#f7f5f1", color: "#1f2430" }}>
+      {/* Conversation area (no forced height — sticky footer handles the bottom) */}
+      <div>
+        <div className="mx-auto w-full px-6 py-5 pb-28" style={{ maxWidth: 820 }}>
           {/* System prompt (editable) */}
           <div className="mb-4">
             <button onClick={() => setShowPrompt((v) => !v)} className="text-xs flex items-center gap-1.5" style={{ color: "#8a8f98" }}>
@@ -267,8 +267,8 @@ function ChatView() {
         </div>
       </div>
 
-      {/* Input — always visible at the bottom, centered */}
-      <div className="shrink-0 px-6 pb-5 pt-3" style={{ borderTop: "1px solid #ece9e3", background: "#f7f5f1" }}>
+      {/* Input — sticky to <main>'s bottom = always visible while messages scroll */}
+      <div className="px-6 pb-5 pt-3" style={{ position: "sticky", bottom: 0, zIndex: 10, borderTop: "1px solid #ece9e3", background: "#f7f5f1" }}>
         <div className="mx-auto w-full" style={{ maxWidth: 820 }}>
           {attached && (
             <div className="flex items-center gap-2 text-xs mb-2 px-3 py-1.5 rounded-lg w-fit" style={{ background: "#fff", border: "1px solid #e5e3de", color: "#4a4f58" }}>
