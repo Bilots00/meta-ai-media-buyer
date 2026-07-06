@@ -1,6 +1,10 @@
-# Web App Template (tRPC + Manus Auth + Database)
+# DreamBrothers Hub (meta-ai-media-buyer)
 
-This template gives you a React 19 + Tailwind 4 + Express 4 + tRPC 11 stack with Manus OAuth already wired. Procedures are your contracts, types flow end to end, and authentication "just works".
+> **⚠️ Hosting / Deployment: Railway — NOT Manus.**
+> This app is deployed on **[Railway](https://railway.app)**: pushing to the `main` branch triggers a Railway build & deploy, and **all environment variables are configured in the Railway project dashboard** (Variables tab).
+> The codebase was originally scaffolded from a **Manus** "Web App" template (hence `template.json`, `vite-plugin-manus-runtime`, and the many "Manus" mentions below). It has since been **migrated to Railway**. Manus is, at most, a provider of some backend services (OAuth / storage / LLM proxy) reached via env vars — **the site does not run on Manus.** See [`AGENTS.md`](AGENTS.md) for authoritative project facts.
+
+React 19 + Tailwind 4 + Express 4 + tRPC 11 stack with OAuth already wired. Procedures are your contracts, types flow end to end, and authentication "just works".
 
 ---
 
@@ -103,8 +107,12 @@ Available pre-defined system envs:
 - `VITE_FRONTEND_FORGE_API_KEY`: Bearer token for frontend access to Manus built-in apis
 - `VITE_FRONTEND_FORGE_API_URL`: Manus built-in apis URL for frontend
 
-Do not edit these directly in code or commit `.env` files.
-The envs above are system envs, when use env in website code, refer `server/_core/env.ts` for available list.
+App-specific envs (configure in the **Railway project → Variables**):
+- `VITE_SMISTAMENTO_URL`: Cloudflare Worker "smistamento-ordini" base URL (POD Partners routing)
+- `VITE_SMISTAMENTO_CONFIG_KEY`: value sent as the `X-CONFIG-KEY` header for `POST /config` (POD Partners toggle)
+
+**Hosting note:** this app runs on **Railway** — configure ALL environment variables in the Railway project's *Variables* tab (not Manus). Do not edit these directly in code or commit `.env` files.
+The system envs above are provided by the Manus backend services the app still integrates with; when using env in website code, refer to `server/_core/env.ts` for the available list.
 
 ---
 
