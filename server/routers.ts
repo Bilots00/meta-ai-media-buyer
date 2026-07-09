@@ -70,6 +70,7 @@ export const appRouter = router({
         id: m.id,
         role: m.role,
         text: m.text,
+        source: m.source,
         when: fmtWhen(m.createdAt),
         pending: m.role === "user" && m.status === "new",
       }));

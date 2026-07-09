@@ -32,4 +32,14 @@
 - Creato `PROGRESS.md` (questo file).
 - Esteso `AGENTS.md` (sezione "DreamBrothers SMM Agent + Shopify Embed").
 - Aggiornato `CLAUDE.md` (puntatori a PROGRESS/AGENTS).
-- Brain: creato `scripts/brain-autosync.ps1` + task `DreamBrothers_Brain_AutoSync` (commit+push ogni 15 min se ci sono modifiche; log in `%LOCALAPPDATA%\DreamBrothers`).
+- Brain: creato `scripts/brain-autosync.ps1` + task `DreamBrothers_Brain_AutoSync` (commit+push ogni 15 min se ci sono modifiche; log in `%LOCALAPPDATA%\DreamBrothers`). ✅ collaudato (push OK).
+
+### 2026-07-09 — Fase 1 (Chat unificata web+Telegram) — modifiche web app [su branch, non ancora deployate]
+**Scoperta VPS:** il poller esiste già (`claude-bot-workspace/social-agent/social_agent.py` + `~/.social-agent.env`: `CARE_WEBHOOK_SECRET`, `SOCIAL_BASE_URL`, poll, modello) ma è **spento** (non installato come servizio; nel log un vecchio crash `Connection reset`). Il bot Telegram generale `claude-bot.service` gira. Web app **ONLINE** (HTTP 200), secret OK, systemPrompt SMM già configurato (organic-first, @gernucci, HyperDopamine).
+**Modifiche web app (`feat/smm-agent`, +59/-7, typecheck pulito sui file toccati):**
+- `drizzle/schema.ts` + `server/_core/index.ts`: colonna `source` (`web`|`telegram`) su `social_chat_messages` + migrazione additiva **idempotente** al boot (guardia su information_schema).
+- `server/db.ts`: `getPendingSocialChat` restituisce `source`; `recordSocialChatReply` accetta `replyToId`/`source` → marca il singolo messaggio (niente race web/telegram).
+- `server/_core/socialRoutes.ts`: nuovo `POST /api/social/ingest` (secret) per iniettare i messaggi Telegram nello **stesso** thread; `/reply` accetta `replyToId`/`source`.
+- `server/routers.ts`: `chatList` espone `source` alla UI.
+**Nota deploy VPS:** `claude-bot-workspace` è **pull-only** (deploy key read-only; cron sync ogni 5 min + keepalive social-agent ogni 1 min). Le modifiche a `social_agent.py` si pushano da PC → `git pull` sul VPS.
+**In attesa di GO go-live:** (1) merge `feat/smm-agent`→`main` = deploy Railway; (2) aggiornare `social_agent.py` (listener Telegram `db_smm_bot` + gestione `source`); (3) token bot in `~/.social-agent.env`; (4) accendere il social-agent.

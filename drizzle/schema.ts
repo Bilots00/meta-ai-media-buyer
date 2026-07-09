@@ -374,6 +374,8 @@ export const socialChatMessages = mysqlTable("social_chat_messages", {
   userId: int("userId").notNull(),
   role: mysqlEnum("role", ["user", "assistant"]).notNull(),
   text: text("text").notNull(),
+  // canale di origine del messaggio: "web" (AI Manager) | "telegram" (bot db_smm_bot)
+  source: varchar("source", { length: 16 }).default("web").notNull(),
   status: mysqlEnum("status", ["new", "handled"]).default("new").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   handledAt: timestamp("handledAt"),

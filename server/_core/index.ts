@@ -102,6 +102,7 @@ async function runMigrations() {
       userId INT NOT NULL,
       role ENUM('user','assistant') NOT NULL,
       text TEXT NOT NULL,
+      source VARCHAR(16) NOT NULL DEFAULT 'web',
       status ENUM('new','handled') NOT NULL DEFAULT 'new',
       createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       handledAt TIMESTAMP NULL,
@@ -111,6 +112,17 @@ async function runMigrations() {
     console.log("[Migrate] Tabelle social_drafts + social_chat_messages pronte");
   } catch (err) {
     console.warn("[Migrate] tabelle social non create:", err);
+  }
+  // Migrazione additiva idempotente: colonna `source` (web|telegram) su social_chat_messages
+  try {
+    const res: any = await db.execute(sql`SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'social_chat_messages' AND COLUMN_NAME = 'source'`);
+    const rows = Array.isArray(res) ? (Array.isArray(res[0]) ? res[0] : res) : [];
+    if (!rows || rows.length === 0) {
+      await db.execute(sql`ALTER TABLE social_chat_messages ADD COLUMN source VARCHAR(16) NOT NULL DEFAULT 'web'`);
+      console.log("[Migrate] social_chat_messages.source aggiunta");
+    }
+  } catch (err) {
+    console.warn("[Migrate] colonna source non aggiunta:", err);
   }
 }
 
