@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import {
   getPendingSocialChat,
   recordSocialChatReply,
+  insertSocialChatMessage,
   insertSocialDraft,
   getAllUserSettings,
   upsertUserSetting,
@@ -48,16 +49,44 @@ export function registerSocialRoutes(app: Express) {
   app.post("/api/social/reply", async (req: Request, res: Response) => {
     if (!checkSecret(req, res)) return;
     try {
-      const { text } = req.body ?? {};
+      const { text, replyToId, source } = req.body ?? {};
       if (!text) {
         res.status(400).json({ error: "text is required" });
         return;
       }
-      const messageId = await recordSocialChatReply({ userId: OWNER_USER_ID, text: String(text) });
+      const messageId = await recordSocialChatReply({
+        userId: OWNER_USER_ID,
+        text: String(text),
+        replyToId: replyToId != null ? Number(replyToId) : undefined,
+        source: source ? String(source) : undefined,
+      });
       res.json({ success: true, messageId });
     } catch (err) {
       console.warn("[social/reply] error:", err);
       res.status(500).json({ error: "reply failed" });
+    }
+  });
+
+  // External surface (Telegram bot db_smm_bot) -> inject a user message into the SAME thread
+  app.post("/api/social/ingest", async (req: Request, res: Response) => {
+    if (!checkSecret(req, res)) return;
+    try {
+      const { text, source } = req.body ?? {};
+      if (!text) {
+        res.status(400).json({ error: "text is required" });
+        return;
+      }
+      const messageId = await insertSocialChatMessage({
+        userId: OWNER_USER_ID,
+        role: "user",
+        text: String(text),
+        status: "new",
+        source: source ? String(source) : "telegram",
+      });
+      res.json({ success: true, messageId });
+    } catch (err) {
+      console.warn("[social/ingest] error:", err);
+      res.status(500).json({ error: "ingest failed" });
     }
   });
 

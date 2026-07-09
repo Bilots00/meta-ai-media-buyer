@@ -437,6 +437,7 @@ export async function getPendingSocialChat(limit = 20) {
     messageId: socialChatMessages.id,
     userId: socialChatMessages.userId,
     text: socialChatMessages.text,
+    source: socialChatMessages.source,
     createdAt: socialChatMessages.createdAt,
   }).from(socialChatMessages)
     .where(and(eq(socialChatMessages.role, "user"), eq(socialChatMessages.status, "new")))
@@ -453,13 +454,20 @@ export async function getSocialChatMessages(userId: number, limit = 100) {
     .limit(limit);
 }
 
-export async function recordSocialChatReply(params: { userId: number; text: string }): Promise<number> {
+export async function recordSocialChatReply(params: { userId: number; text: string; replyToId?: number; source?: string }): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  await db.update(socialChatMessages)
-    .set({ status: "handled", handledAt: new Date() })
-    .where(and(eq(socialChatMessages.userId, params.userId), eq(socialChatMessages.role, "user"), eq(socialChatMessages.status, "new")));
-  const r = await db.insert(socialChatMessages).values({ userId: params.userId, role: "assistant", text: params.text, status: "handled" });
+  if (params.replyToId != null) {
+    // marca gestito SOLO il messaggio a cui rispondiamo (evita race web/telegram)
+    await db.update(socialChatMessages)
+      .set({ status: "handled", handledAt: new Date() })
+      .where(eq(socialChatMessages.id, params.replyToId));
+  } else {
+    await db.update(socialChatMessages)
+      .set({ status: "handled", handledAt: new Date() })
+      .where(and(eq(socialChatMessages.userId, params.userId), eq(socialChatMessages.role, "user"), eq(socialChatMessages.status, "new")));
+  }
+  const r = await db.insert(socialChatMessages).values({ userId: params.userId, role: "assistant", text: params.text, status: "handled", source: params.source ?? "web" });
   return Number((r as unknown as { insertId: number }[])[0].insertId);
 }
 

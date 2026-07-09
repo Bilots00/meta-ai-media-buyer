@@ -40,3 +40,18 @@ corepack pnpm install
 corepack pnpm dev        # tsx watch server/_core/index.ts
 corepack pnpm check      # tsc --noEmit (typecheck)
 ```
+
+---
+
+## 🤖 DreamBrothers SMM Agent + Shopify Embed (build in corso — branch `feat/smm-agent`)
+
+> Progetto: automatizzare il Marketing (creative statiche, UGC, post organici) + SEO con un unico **Social Media Manager AI**, pilotabile da **web app + Telegram**, e incastonare questa web app **dentro l'admin Shopify**. Avanzamento/audit: [`PROGRESS.md`](PROGRESS.md). Company Brain (conoscenza brand + regole): `E:\IDriveLocal\ALL FILES -Cloud-Drive_andrea.bilotta00@gmail.com\E-commerce\DreamBrothers Brain`.
+
+**Always-do (convenzioni di questo build):**
+- **Draft first** — contenuti generati → tabella `social_drafts`, pubblicati solo dopo review di Andrea.
+- **Branch** — si lavora su `feat/smm-agent`; `main` = deploy Railway, si tocca solo ai checkpoint approvati.
+- **Segreti** — solo in env (Railway Variables / VPS env / `.env` git-ignored). Mai nel repo.
+
+**Architettura chat (Fase 1).** La social chat NON ha un modello server-side: è un **bridge DB**. La UI scrive in `social_chat_messages` (`role:user, status:new`); un **agente Claude sempre attivo sul VPS** (subscription Max, 0 costi API) fa polling di `GET /api/social/pending`, genera con la skill `social-media-manager` + Brain e risponde su `POST /api/social/reply` (auth: header segreto `CARE_WEBHOOK_SECRET`; utente unico `OWNER_USER_ID=1`). Il bot **Telegram** (`db_smm_bot`) si aggancia allo **stesso** bridge/DB → conversazione unica web+Telegram; colonna `source` (`web`/`telegram`) per distinguere l'origine.
+
+**Fasi:** `0` Fondamenta ✅ · `1` Chat unificata web+Telegram · `2` Knowledge base (4 cartelle marketing + HyperDopamine) · `3` Embed Shopify (Dev Dashboard app + App Bridge + CSP `frame-ancestors`) · `4` Skill video Higgsfield (`product-to-ad`, `url-to-ad`, `ig-carousel`).
