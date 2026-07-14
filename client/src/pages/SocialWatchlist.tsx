@@ -199,13 +199,20 @@ export default function SocialWatchlist() {
               const score = v.outlierScore != null ? parseFloat(String(v.outlierScore)) : null;
               const os = outlierStyle(score);
               const eng = v.engagementRate != null ? `${(parseFloat(String(v.engagementRate)) * 100).toFixed(1)}%` : null;
+              // fallback: la thumbnail canonica YouTube esiste sempre, anche se il fetch non l'ha trovata
+              const thumbSrc = v.thumbnailUrl ?? (v.platform === "youtube" ? `https://i.ytimg.com/vi/${v.platformVideoId}/hqdefault.jpg` : null);
               return (
                 <div key={v.id} className="rounded-2xl overflow-hidden flex flex-col" style={{ background: "oklch(0.14 0.015 260)", border: "1px solid oklch(0.2 0.015 260)" }}>
                   <a href={v.url} target="_blank" rel="noreferrer" className="relative block aspect-video" style={{ background: "oklch(0.1 0.01 260)" }}>
-                    {v.thumbnailUrl && (
-                      <img src={v.thumbnailUrl} alt={v.title ?? ""} loading="lazy" referrerPolicy="no-referrer"
+                    {thumbSrc && (
+                      <img src={thumbSrc} alt={v.title ?? ""} loading="lazy" referrerPolicy="no-referrer"
                         className="w-full h-full object-cover"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                        onError={(e) => {
+                          const img = e.target as HTMLImageElement;
+                          const canonical = v.platform === "youtube" ? `https://i.ytimg.com/vi/${v.platformVideoId}/hqdefault.jpg` : null;
+                          if (canonical && img.src !== canonical) img.src = canonical;
+                          else img.style.display = "none";
+                        }} />
                     )}
                     <span className="absolute top-2 left-2 flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: os.bg, color: os.fg, backdropFilter: "blur(4px)" }}>
                       <Zap className="w-3 h-3" />{score != null ? `${score}x` : "n/d"}

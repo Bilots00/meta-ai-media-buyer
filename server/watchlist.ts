@@ -457,6 +457,107 @@ export async function fetchTikTokChannel(handle: string): Promise<FetchedChannel
   return channel;
 }
 
+// ─── Apify: fallback affidabile per Instagram/TikTok ──────────────────────────
+// Instagram e TikTok bloccano il fetch anonimo ovunque; Apify gestisce proxy e
+// blocchi. Costi (tier FREE, $5/mese inclusi): IG ~$0.0026/profilo per refresh,
+// TikTok ~$0.003/video. Richiede APIFY_TOKEN nelle env (Railway Variables).
+
+export function hasApifyToken(): boolean {
+  return Boolean(process.env.APIFY_TOKEN);
+}
+
+async function apifyRunSync<T>(actorId: string, input: unknown): Promise<T[]> {
+  const token = process.env.APIFY_TOKEN;
+  if (!token) throw new Error("APIFY_TOKEN non configurato nelle variabili d'ambiente");
+  const url = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}&timeout=120`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    signal: AbortSignal.timeout(150_000),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Apify ${actorId}: HTTP ${res.status} ${text.slice(0, 180)}`);
+  }
+  const json = (await res.json()) as T[];
+  return Array.isArray(json) ? json : [];
+}
+
+export async function fetchInstagramViaApify(handle: string): Promise<FetchedChannel> {
+  type IgProfile = {
+    error?: string;
+    username?: string;
+    fullName?: string;
+    followersCount?: number;
+    profilePicUrl?: string;
+    profilePicUrlHD?: string;
+    id?: string;
+    latestPosts?: Array<{
+      id?: string; type?: string; shortCode?: string; caption?: string; url?: string;
+      displayUrl?: string; likesCount?: number; commentsCount?: number;
+      videoViewCount?: number; videoPlayCount?: number; timestamp?: string;
+    }>;
+  };
+  const items = await apifyRunSync<IgProfile>("apify~instagram-profile-scraper", { usernames: [handle] });
+  const p = items.find((i) => !i.error);
+  if (!p) throw new Error(`Apify: profilo Instagram "@${handle}" non trovato (${items[0]?.error ?? "nessun risultato"})`);
+  return {
+    handle,
+    displayName: p.fullName || handle,
+    avatarUrl: p.profilePicUrlHD ?? p.profilePicUrl,
+    followers: Number(p.followersCount ?? 0),
+    platformChannelId: p.id,
+    videos: (p.latestPosts ?? []).filter((m) => m.shortCode || m.url).map((m) => ({
+      platformVideoId: String(m.shortCode ?? m.id),
+      url: m.url ?? `https://www.instagram.com/p/${m.shortCode}/`,
+      thumbnailUrl: m.displayUrl,
+      title: m.caption?.slice(0, 500),
+      publishedAt: m.timestamp ? new Date(m.timestamp) : undefined,
+      views: Number(m.videoViewCount ?? m.videoPlayCount ?? 0),
+      likes: Number(m.likesCount ?? 0),
+      comments: Number(m.commentsCount ?? 0),
+    })),
+  };
+}
+
+export async function fetchTikTokViaApify(handle: string, maxVideos = 25): Promise<FetchedChannel> {
+  type TtItem = {
+    id?: string; text?: string; createTimeISO?: string; webVideoUrl?: string;
+    playCount?: number; diggCount?: number; commentCount?: number; shareCount?: number;
+    videoMeta?: { coverUrl?: string; duration?: number };
+    authorMeta?: { name?: string; nickName?: string; fans?: number; avatar?: string; id?: string };
+  };
+  const items = await apifyRunSync<TtItem>("clockworks~tiktok-profile-scraper", {
+    profiles: [handle],
+    resultsPerPage: maxVideos,
+    profileSorting: "latest",
+    excludePinnedPosts: false,
+  });
+  const withAuthor = items.find((i) => i.authorMeta?.name);
+  if (!withAuthor && items.length === 0) throw new Error(`Apify: profilo TikTok "@${handle}" non trovato o senza video`);
+  const author = withAuthor?.authorMeta;
+  return {
+    handle,
+    displayName: author?.nickName || handle,
+    avatarUrl: author?.avatar,
+    followers: Number(author?.fans ?? 0),
+    platformChannelId: author?.id,
+    videos: items.filter((i) => i.id).map((i) => ({
+      platformVideoId: String(i.id),
+      url: i.webVideoUrl ?? `https://www.tiktok.com/@${handle}/video/${i.id}`,
+      thumbnailUrl: i.videoMeta?.coverUrl,
+      title: (i.text ?? "").slice(0, 500),
+      publishedAt: i.createTimeISO ? new Date(i.createTimeISO) : undefined,
+      views: Number(i.playCount ?? 0),
+      likes: Number(i.diggCount ?? 0),
+      comments: Number(i.commentCount ?? 0),
+      shares: Number(i.shareCount ?? 0),
+      durationSec: i.videoMeta?.duration != null ? Number(i.videoMeta.duration) : undefined,
+    })),
+  };
+}
+
 // ─── Dispatch ─────────────────────────────────────────────────────────────────
 export async function fetchChannel(platform: WatchPlatform, handle: string): Promise<FetchedChannel> {
   if (platform === "youtube") return fetchYouTubeChannel(handle);

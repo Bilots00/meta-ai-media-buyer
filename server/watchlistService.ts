@@ -10,6 +10,7 @@ import {
 import { getInstagramBusinessId, instagramBusinessDiscovery } from "./metaApi";
 import {
   parseChannelInput, fetchChannel, computeOutlierScores, computeEngagementRate,
+  fetchInstagramViaApify, fetchTikTokViaApify, hasApifyToken,
   type WatchPlatform, type FetchedChannel, type FetchedVideo,
 } from "./watchlist";
 
@@ -133,18 +134,34 @@ export async function refreshWatchlistChannel(channelId: number): Promise<{ ok: 
     try {
       fetched = await fetchChannel(channel.platform as WatchPlatform, channel.handle);
     } catch (err) {
-      // Instagram blocca il fetch web anonimo: proviamo la Graph API ufficiale
-      if (channel.platform === "instagram") {
-        const viaMeta = await fetchInstagramViaMeta(channel.userId, channel.handle).catch((metaErr) => {
-          const m1 = err instanceof Error ? err.message : String(err);
-          const m2 = metaErr instanceof Error ? metaErr.message : String(metaErr);
-          throw new Error(`${m1} — Fallback Graph API fallito: ${m2}`);
-        });
-        if (!viaMeta) throw err;
-        fetched = viaMeta;
-      } else {
-        throw err;
+      // IG/TikTok bloccano il fetch web anonimo: catena di fallback.
+      // 1) Apify (se APIFY_TOKEN configurato) — proxy gestiti, dati completi
+      // 2) solo IG: Graph API business_discovery col token Meta collegato
+      const reasons: string[] = [err instanceof Error ? err.message : String(err)];
+      let recovered: FetchedChannel | null = null;
+      if (channel.platform !== "youtube" && hasApifyToken()) {
+        try {
+          recovered = channel.platform === "instagram"
+            ? await fetchInstagramViaApify(channel.handle)
+            : await fetchTikTokViaApify(channel.handle);
+        } catch (apifyErr) {
+          reasons.push(`Apify: ${apifyErr instanceof Error ? apifyErr.message : String(apifyErr)}`);
+        }
       }
+      if (!recovered && channel.platform === "instagram") {
+        try {
+          recovered = await fetchInstagramViaMeta(channel.userId, channel.handle);
+        } catch (metaErr) {
+          reasons.push(`Graph API: ${metaErr instanceof Error ? metaErr.message : String(metaErr)}`);
+        }
+      }
+      if (!recovered) {
+        if (channel.platform !== "youtube" && !hasApifyToken()) {
+          reasons.push("Suggerimento: imposta APIFY_TOKEN nelle Railway Variables per il fallback Apify automatico");
+        }
+        throw new Error(reasons.join(" — "));
+      }
+      fetched = recovered;
     }
     const { videosStored } = await storeFetchedChannel(channel.userId, channel.id, channel.platform as WatchPlatform, fetched);
     return { ok: true, videosStored };
