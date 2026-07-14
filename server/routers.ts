@@ -18,7 +18,9 @@ import {
   getAllUserSettings, upsertUserSetting,
   getCsConversationsForUser, getCsMessagesForConversation, recordCsReply, updateCsConversation, getCsConversationById,
   getSocialChatMessages, insertSocialChatMessage, getSocialDraftsForUser, updateSocialDraft, deleteSocialDraft,
+  getWatchlistChannels, deleteWatchlistChannel, getWatchlistVideos, getWatchlistChannelStats, getWatchlistChannelById,
 } from "./db";
+import { addWatchlistChannel, refreshWatchlistChannel, refreshAllWatchlistChannels } from "./watchlistService";
 import {
   getAdAccountInfo, getMetaCampaigns, createMetaCampaign,
   getMetaAdSets, createMetaAdSet, getMetaAds,
@@ -113,6 +115,72 @@ export const appRouter = router({
         systemPrompt: s.social_system_prompt || "",
       };
     }),
+  }),
+
+  // ─── Watchlist canali competitor (replica Sandcastles, dati gratuiti) ────────
+  watchlist: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      const [channels, stats] = await Promise.all([
+        getWatchlistChannels(ctx.user.id),
+        getWatchlistChannelStats(ctx.user.id),
+      ]);
+      const statsById = new Map(stats.map((s) => [s.channelId, s]));
+      return channels.map((c) => ({
+        ...c,
+        videoCount: Number(statsById.get(c.id)?.videoCount ?? 0),
+        views30d: Number(statsById.get(c.id)?.views30d ?? 0),
+      }));
+    }),
+
+    add: protectedProcedure
+      .input(z.object({
+        input: z.string().min(1),
+        platform: z.enum(["youtube", "instagram", "tiktok"]).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const result = await addWatchlistChannel(ctx.user.id, input.input, input.platform);
+        return result;
+      }),
+
+    remove: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
+      const ch = await getWatchlistChannelById(input.id);
+      if (!ch || ch.userId !== ctx.user.id) throw new Error("Canale non trovato");
+      await deleteWatchlistChannel(input.id);
+      return { success: true } as const;
+    }),
+
+    refresh: protectedProcedure.input(z.object({ id: z.number().optional() })).mutation(async ({ ctx, input }) => {
+      if (input.id) {
+        const ch = await getWatchlistChannelById(input.id);
+        if (!ch || ch.userId !== ctx.user.id) throw new Error("Canale non trovato");
+        return refreshWatchlistChannel(input.id);
+      }
+      return refreshAllWatchlistChannels(ctx.user.id);
+    }),
+
+    videos: protectedProcedure
+      .input(z.object({
+        channelId: z.number().optional(),
+        platform: z.enum(["youtube", "instagram", "tiktok"]).optional(),
+        lookbackDays: z.number().min(0).max(730).default(30),
+        minOutlier: z.number().min(0).default(0),
+        minViews: z.number().min(0).default(0),
+        sort: z.enum(["outlier", "views", "recent"]).default("outlier"),
+        limit: z.number().min(1).max(200).default(60),
+      }))
+      .query(async ({ ctx, input }) => {
+        return getWatchlistVideos(ctx.user.id, input);
+      }),
+
+    // Chiede all'AI Manager (agente VPS) la deep-analysis di un video: entra nel
+    // thread chat esistente, l'agente risponde e salva via /api/social/watchlist/analysis
+    requestAnalysis: protectedProcedure
+      .input(z.object({ url: z.string().min(1), title: z.string().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const text = `[WATCHLIST → DEEP ANALYSIS]\nAnalizza questo video della watchlist: ${input.url}${input.title ? `\nTitolo: ${input.title}` : ""}\nEstrai: topic, hook (parlato/visivo/testo) + categoria hook, formato storytelling e perché funziona, struttura, CTA, insight non ovvi. Poi salva il JSON con POST /api/social/watchlist/analysis e rispondimi in chat con la sintesi.`;
+        const id = await insertSocialChatMessage({ userId: ctx.user.id, role: "user", text, status: "new", source: "web" });
+        return { success: true, id } as const;
+      }),
   }),
 
   // ─── Meta Accounts ──────────────────────────────────────────────────────────

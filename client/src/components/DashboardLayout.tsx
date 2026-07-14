@@ -9,7 +9,7 @@ import {
   ChevronDown, FlaskConical, Instagram, Layout,
   LogOut, Megaphone, Package, Package2, PanelLeft, Plug,
   Sparkles, Target, Zap, MessageSquare, Calendar, PenSquare,
-  Library, Images, Lightbulb, Settings as SettingsIcon, ClipboardList, Headset, Inbox,
+  Library, Images, Lightbulb, Settings as SettingsIcon, ClipboardList, Headset, Inbox, Radar,
 } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
@@ -39,6 +39,7 @@ const SOCIAL_ITEMS = [
   { icon: PenSquare, label: "Crea Post", path: "/social/create", description: "Organic Contents LAB" },
   { icon: Calendar, label: "Calendario", path: "/social/calendar", description: "Piano mensile & annuale" },
   { icon: ClipboardList, label: "Bozze", path: "/social/drafts", description: "Bozze da revisionare" },
+  { icon: Radar, label: "Watchlist", path: "/social/watchlist", description: "Canali competitor & outlier" },
 ];
 
 const CARE_ITEMS = [

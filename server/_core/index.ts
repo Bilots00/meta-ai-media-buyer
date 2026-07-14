@@ -7,6 +7,7 @@ import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { registerCareRoutes } from "./careRoutes";
 import { registerSocialRoutes } from "./socialRoutes";
+import { registerWatchlistRoutes } from "./watchlistRoutes";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -113,6 +114,52 @@ async function runMigrations() {
   } catch (err) {
     console.warn("[Migrate] tabelle social non create:", err);
   }
+  try {
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS watchlist_channels (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL,
+      platform VARCHAR(16) NOT NULL,
+      handle VARCHAR(191) NOT NULL,
+      displayName VARCHAR(255),
+      avatarUrl TEXT,
+      followers BIGINT NOT NULL DEFAULT 0,
+      platformChannelId VARCHAR(191),
+      status ENUM('pending','active','error') NOT NULL DEFAULT 'pending',
+      lastError TEXT,
+      lastRefreshAt TIMESTAMP NULL,
+      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_watch_channel (userId, platform, handle)
+    )`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS watchlist_videos (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL,
+      channelId INT NOT NULL,
+      platform VARCHAR(16) NOT NULL,
+      platformVideoId VARCHAR(191) NOT NULL,
+      url TEXT NOT NULL,
+      thumbnailUrl TEXT,
+      title TEXT,
+      publishedAt TIMESTAMP NULL,
+      views BIGINT NOT NULL DEFAULT 0,
+      likes BIGINT NOT NULL DEFAULT 0,
+      comments BIGINT NOT NULL DEFAULT 0,
+      shares BIGINT NOT NULL DEFAULT 0,
+      durationSec INT,
+      engagementRate DECIMAL(8,4),
+      outlierScore DECIMAL(8,2),
+      analysisJson JSON,
+      analyzedAt TIMESTAMP NULL,
+      fetchedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_watch_video (channelId, platformVideoId),
+      INDEX idx_watch_video_user (userId),
+      INDEX idx_watch_video_published (publishedAt)
+    )`);
+    console.log("[Migrate] Tabelle watchlist_channels + watchlist_videos pronte");
+  } catch (err) {
+    console.warn("[Migrate] tabelle watchlist non create:", err);
+  }
   // Migrazione additiva idempotente: colonna `source` (web|telegram) su social_chat_messages
   try {
     const res: any = await db.execute(sql`SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'social_chat_messages' AND COLUMN_NAME = 'source'`);
@@ -156,6 +203,7 @@ async function startServer() {
   registerOAuthRoutes(app);
   registerCareRoutes(app);
   registerSocialRoutes(app);
+  registerWatchlistRoutes(app);
   // tRPC API
   app.use(
     "/api/trpc",

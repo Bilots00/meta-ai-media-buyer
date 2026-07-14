@@ -1,6 +1,6 @@
-import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
+import { eq, desc, and, or, isNull, gte, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, metaAccounts, campaigns, adSets, ads, kpiSnapshots, goals, agentLogs, abTests, alerts, copyGenerations, trackingConfigs, userSettings, csConversations, csMessages, socialDrafts, socialChatMessages } from "../drizzle/schema";
+import { InsertUser, users, metaAccounts, campaigns, adSets, ads, kpiSnapshots, goals, agentLogs, abTests, alerts, copyGenerations, trackingConfigs, userSettings, csConversations, csMessages, socialDrafts, socialChatMessages, watchlistChannels, watchlistVideos } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -507,4 +507,174 @@ export async function updateCsConversation(id: number, data: Partial<typeof csCo
   const db = await getDb();
   if (!db) return;
   await db.update(csConversations).set({ ...data, updatedAt: new Date() }).where(eq(csConversations.id, id));
+}
+
+// ─── Social: Watchlist (canali competitor + video, replica Sandcastles) ────────
+export async function getWatchlistChannels(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(watchlistChannels)
+    .where(eq(watchlistChannels.userId, userId))
+    .orderBy(desc(watchlistChannels.createdAt));
+}
+
+export async function getWatchlistChannelById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(watchlistChannels).where(eq(watchlistChannels.id, id)).limit(1);
+  return rows[0];
+}
+
+export async function findWatchlistChannel(userId: number, platform: string, handle: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(watchlistChannels)
+    .where(and(eq(watchlistChannels.userId, userId), eq(watchlistChannels.platform, platform), eq(watchlistChannels.handle, handle)))
+    .limit(1);
+  return rows[0];
+}
+
+export async function insertWatchlistChannel(data: typeof watchlistChannels.$inferInsert): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const r = await db.insert(watchlistChannels).values(data);
+  return Number((r as unknown as { insertId: number }[])[0].insertId);
+}
+
+export async function updateWatchlistChannel(id: number, patch: Partial<typeof watchlistChannels.$inferInsert>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(watchlistChannels).set(patch).where(eq(watchlistChannels.id, id));
+}
+
+export async function deleteWatchlistChannel(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(watchlistVideos).where(eq(watchlistVideos.channelId, id));
+  await db.delete(watchlistChannels).where(eq(watchlistChannels.id, id));
+}
+
+export async function upsertWatchlistVideo(data: typeof watchlistVideos.$inferInsert): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  // Non degradare mai dati buoni: un fetch parziale (scrape fallito a metà, ingest
+  // minimale dell'agente) aggiorna solo i campi che conosce davvero.
+  await db.insert(watchlistVideos).values(data).onDuplicateKeyUpdate({
+    set: {
+      ...(data.views != null && data.views > 0 ? { views: data.views } : {}),
+      ...(data.likes != null && data.likes > 0 ? { likes: data.likes } : {}),
+      ...(data.comments != null && data.comments > 0 ? { comments: data.comments } : {}),
+      ...(data.shares != null && data.shares > 0 ? { shares: data.shares } : {}),
+      ...(data.title ? { title: data.title } : {}),
+      ...(data.thumbnailUrl ? { thumbnailUrl: data.thumbnailUrl } : {}),
+      ...(data.engagementRate ? { engagementRate: data.engagementRate } : {}),
+      ...(data.durationSec != null ? { durationSec: data.durationSec } : {}),
+      ...(data.publishedAt ? { publishedAt: data.publishedAt } : {}),
+      fetchedAt: new Date(),
+    },
+  });
+}
+
+/** Video di un canale (id + views) nella finestra, per il calcolo outlier. */
+export async function getWatchlistVideoViews(channelId: number, since?: Date) {
+  const db = await getDb();
+  if (!db) return [];
+  const conds = [eq(watchlistVideos.channelId, channelId)];
+  // publishedAt NULL (data sconosciuta, es. Shorts scrapeati) = trattato come recente
+  if (since) conds.push(or(gte(watchlistVideos.publishedAt, since), isNull(watchlistVideos.publishedAt))!);
+  return db.select({ id: watchlistVideos.id, views: watchlistVideos.views })
+    .from(watchlistVideos).where(and(...conds));
+}
+
+export async function setWatchlistVideoOutlier(id: number, score: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  // clamp: DECIMAL(8,2) regge max 999999.99 — un virale su un micro-canale può superarlo
+  const clamped = Math.min(score, 9999.99);
+  await db.update(watchlistVideos).set({ outlierScore: clamped.toFixed(2) }).where(eq(watchlistVideos.id, id));
+}
+
+export interface WatchlistVideoFilters {
+  channelId?: number;
+  platform?: string;
+  lookbackDays?: number;
+  minOutlier?: number;
+  minViews?: number;
+  sort?: "outlier" | "views" | "recent";
+  limit?: number;
+}
+
+/** Feed video della watchlist con join sul canale (equivalente di search_my_videos). */
+export async function getWatchlistVideos(userId: number, f: WatchlistVideoFilters = {}) {
+  const db = await getDb();
+  if (!db) return [];
+  const conds = [eq(watchlistVideos.userId, userId)];
+  if (f.channelId) conds.push(eq(watchlistVideos.channelId, f.channelId));
+  if (f.platform) conds.push(eq(watchlistVideos.platform, f.platform));
+  if (f.lookbackDays && f.lookbackDays > 0) {
+    const since = new Date(Date.now() - f.lookbackDays * 86_400_000);
+    // publishedAt NULL (data sconosciuta) resta visibile nel feed
+    conds.push(or(gte(watchlistVideos.publishedAt, since), isNull(watchlistVideos.publishedAt))!);
+  }
+  if (f.minViews && f.minViews > 0) conds.push(gte(watchlistVideos.views, f.minViews));
+  if (f.minOutlier && f.minOutlier > 0) {
+    conds.push(sql`${watchlistVideos.outlierScore} >= ${f.minOutlier}`);
+  }
+  const orderBy =
+    f.sort === "views" ? desc(watchlistVideos.views)
+    : f.sort === "recent" ? desc(watchlistVideos.publishedAt)
+    : desc(watchlistVideos.outlierScore);
+  return db.select({
+    id: watchlistVideos.id,
+    channelId: watchlistVideos.channelId,
+    platform: watchlistVideos.platform,
+    platformVideoId: watchlistVideos.platformVideoId,
+    url: watchlistVideos.url,
+    thumbnailUrl: watchlistVideos.thumbnailUrl,
+    title: watchlistVideos.title,
+    publishedAt: watchlistVideos.publishedAt,
+    views: watchlistVideos.views,
+    likes: watchlistVideos.likes,
+    comments: watchlistVideos.comments,
+    shares: watchlistVideos.shares,
+    durationSec: watchlistVideos.durationSec,
+    engagementRate: watchlistVideos.engagementRate,
+    outlierScore: watchlistVideos.outlierScore,
+    analyzedAt: watchlistVideos.analyzedAt,
+    channelHandle: watchlistChannels.handle,
+    channelName: watchlistChannels.displayName,
+    channelAvatar: watchlistChannels.avatarUrl,
+  }).from(watchlistVideos)
+    .innerJoin(watchlistChannels, eq(watchlistVideos.channelId, watchlistChannels.id))
+    .where(and(...conds))
+    .orderBy(orderBy)
+    .limit(Math.min(f.limit ?? 60, 200));
+}
+
+/** Statistiche aggregate per canale: n. video e somma views negli ultimi 30 giorni. */
+export async function getWatchlistChannelStats(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const since = new Date(Date.now() - 30 * 86_400_000);
+  return db.select({
+    channelId: watchlistVideos.channelId,
+    videoCount: sql<number>`COUNT(*)`,
+    views30d: sql<number>`COALESCE(SUM(CASE WHEN ${watchlistVideos.publishedAt} >= ${since} THEN ${watchlistVideos.views} ELSE 0 END), 0)`,
+  }).from(watchlistVideos)
+    .where(eq(watchlistVideos.userId, userId))
+    .groupBy(watchlistVideos.channelId);
+}
+
+/** Salva la deep-analysis di un video (compilata dall'agente VPS). */
+export async function setWatchlistVideoAnalysis(params: { userId: number; videoId?: number; url?: string; analysis: unknown }): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const conds = [eq(watchlistVideos.userId, params.userId)];
+  if (params.videoId) conds.push(eq(watchlistVideos.id, params.videoId));
+  else if (params.url) conds.push(eq(watchlistVideos.url, params.url));
+  else return false;
+  const r = await db.update(watchlistVideos)
+    .set({ analysisJson: params.analysis, analyzedAt: new Date() })
+    .where(and(...conds));
+  return Number((r as unknown as { affectedRows?: number }[])[0]?.affectedRows ?? 0) > 0;
 }

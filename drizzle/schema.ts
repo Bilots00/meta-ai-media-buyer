@@ -9,6 +9,7 @@ import {
   boolean,
   json,
   bigint,
+  uniqueIndex,
 } from "drizzle-orm/mysql-core";
 
 // ─── Users ────────────────────────────────────────────────────────────────────
@@ -382,3 +383,55 @@ export const socialChatMessages = mysqlTable("social_chat_messages", {
 });
 
 export type SocialChatMessage = typeof socialChatMessages.$inferSelect;
+
+// ─── Social: Watchlist canali competitor (replica Sandcastles, dati gratuiti) ──
+export const watchlistChannels = mysqlTable("watchlist_channels", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  platform: varchar("platform", { length: 16 }).notNull(), // youtube | instagram | tiktok
+  handle: varchar("handle", { length: 191 }).notNull(), // normalizzato senza @
+  displayName: varchar("displayName", { length: 255 }),
+  avatarUrl: text("avatarUrl"),
+  followers: bigint("followers", { mode: "number" }).default(0).notNull(),
+  platformChannelId: varchar("platformChannelId", { length: 191 }),
+  // pending = appena aggiunto, active = dati ok, error = ultimo refresh fallito
+  status: mysqlEnum("status", ["pending", "active", "error"]).default("pending").notNull(),
+  lastError: text("lastError"),
+  lastRefreshAt: timestamp("lastRefreshAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => [
+  uniqueIndex("uq_watch_channel").on(t.userId, t.platform, t.handle),
+]);
+
+export type WatchlistChannel = typeof watchlistChannels.$inferSelect;
+
+export const watchlistVideos = mysqlTable("watchlist_videos", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  channelId: int("channelId").notNull(),
+  platform: varchar("platform", { length: 16 }).notNull(),
+  platformVideoId: varchar("platformVideoId", { length: 191 }).notNull(),
+  url: text("url").notNull(),
+  thumbnailUrl: text("thumbnailUrl"),
+  title: text("title"),
+  publishedAt: timestamp("publishedAt"),
+  views: bigint("views", { mode: "number" }).default(0).notNull(),
+  likes: bigint("likes", { mode: "number" }).default(0).notNull(),
+  comments: bigint("comments", { mode: "number" }).default(0).notNull(),
+  shares: bigint("shares", { mode: "number" }).default(0).notNull(),
+  durationSec: int("durationSec"),
+  // engagement = (likes+comments+shares)/views; outlier = views / mediana canale
+  engagementRate: decimal("engagementRate", { precision: 8, scale: 4 }),
+  outlierScore: decimal("outlierScore", { precision: 8, scale: 2 }),
+  // deep-analysis (hook, topic, formato...) compilata dall'agente VPS via REST
+  analysisJson: json("analysisJson"),
+  analyzedAt: timestamp("analyzedAt"),
+  fetchedAt: timestamp("fetchedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  // stesso vincolo del CREATE TABLE al boot: l'upsert (onDuplicateKeyUpdate) dipende da questo
+  uniqueIndex("uq_watch_video").on(t.channelId, t.platformVideoId),
+]);
+
+export type WatchlistVideo = typeof watchlistVideos.$inferSelect;

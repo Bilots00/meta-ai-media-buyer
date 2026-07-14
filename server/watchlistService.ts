@@ -1,0 +1,167 @@
+/**
+ * Orchestrazione Watchlist: aggiunta canali, refresh dati, ricalcolo outlier.
+ * Usato sia dal router tRPC (web app) sia dalle route REST (agente VPS / n8n).
+ */
+import {
+  findWatchlistChannel, insertWatchlistChannel, updateWatchlistChannel,
+  getWatchlistChannelById, getWatchlistChannels, upsertWatchlistVideo,
+  getWatchlistVideoViews, setWatchlistVideoOutlier,
+} from "./db";
+import {
+  parseChannelInput, fetchChannel, computeOutlierScores, computeEngagementRate,
+  type WatchPlatform, type FetchedChannel, type FetchedVideo,
+} from "./watchlist";
+
+const OUTLIER_WINDOW_DAYS = 90;
+const REFRESH_CONCURRENCY = 3;
+
+/** Normalizzazione handle unica per add e ingest (evita canali duplicati). */
+function cleanHandle(raw: string): string {
+  return raw.replace(/^@+/, "").replace(/[/?#].*$/, "").trim();
+}
+
+async function getOrCreateChannel(userId: number, platform: WatchPlatform, handle: string): Promise<number> {
+  const existing = await findWatchlistChannel(userId, platform, handle);
+  if (existing) return existing.id;
+  return insertWatchlistChannel({ userId, platform, handle, status: "pending" });
+}
+
+/** Ricalcola l'outlier score di tutti i video del canale (mediana ultimi 90gg). */
+export async function recomputeChannelOutliers(channelId: number): Promise<void> {
+  const since = new Date(Date.now() - OUTLIER_WINDOW_DAYS * 86_400_000);
+  let vids = await getWatchlistVideoViews(channelId, since);
+  // canali con pochi post recenti: usa tutto lo storico come baseline
+  if (vids.filter((v) => v.views > 0).length < 3) vids = await getWatchlistVideoViews(channelId);
+  const scores = computeOutlierScores(vids);
+  const entries: Array<[number, number]> = [];
+  scores.forEach((score, id) => entries.push([id, score]));
+  for (const [id, score] of entries) await setWatchlistVideoOutlier(id, score);
+}
+
+/** Scrive canale + video arrivati da un fetch (o dall'ingest dell'agente VPS). */
+export async function storeFetchedChannel(
+  userId: number,
+  channelId: number,
+  platform: WatchPlatform,
+  fetched: FetchedChannel
+): Promise<{ videosStored: number }> {
+  let stored = 0;
+  for (const v of fetched.videos) {
+    if (!v.platformVideoId) continue;
+    const engagement = computeEngagementRate(v);
+    await upsertWatchlistVideo({
+      userId,
+      channelId,
+      platform,
+      platformVideoId: v.platformVideoId,
+      url: v.url,
+      thumbnailUrl: v.thumbnailUrl ?? null,
+      title: v.title ?? null,
+      publishedAt: v.publishedAt ?? null,
+      views: v.views ?? 0,
+      likes: v.likes ?? 0,
+      comments: v.comments ?? 0,
+      shares: v.shares ?? 0,
+      durationSec: v.durationSec ?? null,
+      engagementRate: engagement != null ? engagement.toFixed(4) : null,
+    });
+    stored++;
+  }
+  await updateWatchlistChannel(channelId, {
+    displayName: fetched.displayName ?? undefined,
+    avatarUrl: fetched.avatarUrl ?? undefined,
+    followers: fetched.followers ?? undefined,
+    platformChannelId: fetched.platformChannelId ?? undefined,
+    status: "active",
+    lastError: null,
+    lastRefreshAt: new Date(),
+  });
+  await recomputeChannelOutliers(channelId);
+  return { videosStored: stored };
+}
+
+/** Refresh completo di un canale: fetch piattaforma → upsert video → outlier. */
+export async function refreshWatchlistChannel(channelId: number): Promise<{ ok: boolean; videosStored: number; error?: string }> {
+  const channel = await getWatchlistChannelById(channelId);
+  if (!channel) return { ok: false, videosStored: 0, error: "Canale non trovato" };
+  try {
+    const fetched = await fetchChannel(channel.platform as WatchPlatform, channel.handle);
+    const { videosStored } = await storeFetchedChannel(channel.userId, channel.id, channel.platform as WatchPlatform, fetched);
+    return { ok: true, videosStored };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await updateWatchlistChannel(channelId, { status: "error", lastError: message, lastRefreshAt: new Date() });
+    return { ok: false, videosStored: 0, error: message };
+  }
+}
+
+/** Aggiunge un canale (da URL o handle+piattaforma) e fa subito il primo refresh. */
+export async function addWatchlistChannel(
+  userId: number,
+  rawInput: string,
+  platformHint?: WatchPlatform
+): Promise<{ channelId: number; platform: WatchPlatform; handle: string; refresh: { ok: boolean; videosStored: number; error?: string } }> {
+  const { platform, handle } = parseChannelInput(rawInput, platformHint);
+  const channelId = await getOrCreateChannel(userId, platform, handle);
+  const refresh = await refreshWatchlistChannel(channelId);
+  return { channelId, platform, handle, refresh };
+}
+
+/** Refresh di tutti i canali dell'utente, a piccoli lotti concorrenti (rate limit ok). */
+export async function refreshAllWatchlistChannels(userId: number): Promise<{ refreshed: number; errors: { handle: string; error: string }[] }> {
+  const channels = await getWatchlistChannels(userId);
+  let refreshed = 0;
+  const errors: { handle: string; error: string }[] = [];
+  for (let i = 0; i < channels.length; i += REFRESH_CONCURRENCY) {
+    const batch = channels.slice(i, i + REFRESH_CONCURRENCY);
+    const results = await Promise.all(batch.map((ch) => refreshWatchlistChannel(ch.id)));
+    results.forEach((r, j) => {
+      if (r.ok) refreshed++;
+      else errors.push({ handle: `${batch[j].platform}/@${batch[j].handle}`, error: r.error ?? "sconosciuto" });
+    });
+  }
+  return { refreshed, errors };
+}
+
+/** Ingest dall'agente VPS: upsert canale per handle + video già scrapeati. */
+export async function ingestWatchlistData(
+  userId: number,
+  payload: {
+    platform: WatchPlatform;
+    handle: string;
+    displayName?: string;
+    avatarUrl?: string;
+    followers?: number;
+    videos?: Array<Partial<FetchedVideo> & { platformVideoId?: string; url?: string; publishedAt?: string | Date }>;
+  }
+): Promise<{ channelId: number; videosStored: number }> {
+  const handle = cleanHandle(payload.handle);
+  if (!handle) throw new Error("handle mancante");
+  const channelId = await getOrCreateChannel(userId, payload.platform, handle);
+
+  // url obbligatorio (è il link cliccabile della UI); id ricavabile dall'url ma
+  // troncato a 191 char (VARCHAR + chiave unica)
+  const videos: FetchedVideo[] = (payload.videos ?? [])
+    .filter((v) => v.url)
+    .map((v) => ({
+      platformVideoId: String(v.platformVideoId ?? v.url).slice(0, 191),
+      url: String(v.url),
+      thumbnailUrl: v.thumbnailUrl,
+      title: v.title,
+      publishedAt: v.publishedAt ? new Date(v.publishedAt) : undefined,
+      views: Number(v.views ?? 0),
+      likes: Number(v.likes ?? 0),
+      comments: Number(v.comments ?? 0),
+      shares: Number(v.shares ?? 0),
+      durationSec: v.durationSec != null ? Number(v.durationSec) : undefined,
+    }));
+
+  const { videosStored } = await storeFetchedChannel(userId, channelId, payload.platform, {
+    handle,
+    displayName: payload.displayName,
+    avatarUrl: payload.avatarUrl,
+    followers: payload.followers != null ? Number(payload.followers) : undefined,
+    videos,
+  });
+  return { channelId, videosStored };
+}

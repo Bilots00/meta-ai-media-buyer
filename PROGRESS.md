@@ -76,3 +76,19 @@
 **Cowork:** esteso il CLAUDE.md del progetto (`...\TOP Brands Inspiration (...)\CLAUDE.md`) con sezione "Regole aggiuntive VINCOLANTI": fable-mode sempre, REFERENCE-FIRST (mai inventare da zero, mai auto-test), prompt-master, Brain-first, 4 quality gates immagini.
 **System prompt agente:** aggiornato con la stessa disciplina (verificato: fable/prompt-master/REFERENCE-FIRST presenti). Live al prossimo ciclo di poll; il nuovo CODICE richiede restart (Andrea).
 **Nota watermark:** la filigrana Higgsfield dei test Cowork dipende dal piano/asset preview — i quality gates ora vietano la consegna di immagini watermarked.
+
+### 2026-07-15 — Fase 2.6 (Watchlist Sandcastles-style) — su `feat/smm-agent`, in attesa di GO
+**Obiettivo (Andrea):** replicare la funzione **watchlist** di Sandcastles.ai (dal video Kallaway `Cnk9NQ8JpCs`) dentro *Social Organico* — canali competitor YouTube/Instagram/TikTok, feed video con **outlier score**, senza abbonamenti.
+**Architettura (fonte dati gratuita, 3 livelli):**
+1. **YouTube**: Data API v3 se `YOUTUBE_API_KEY` è su Railway (gratis, 10k unità/g), altrimenti scraping `ytInitialData` (nuovo formato `lockupViewModel` 2024+) — ✅ testato live: 48 video di @kallawaymarketing con views/date, zero chiavi.
+2. **Instagram/TikTok**: tentativo server-side (web_profile_info / __UNIVERSAL_DATA_FOR_REHYDRATION__) con degradazione elegante — dai datacenter Railway spesso bloccano (verificato: IG 429, TikTok shield).
+3. **Fallback garantito**: l'**agente VPS** scrapea e spinge i dati via `POST /api/social/watchlist/ingest` (stesso pattern bridge, stesso secret) — skill pronta in `references/skills/smm-watchlist.md` (replica di watchlist-outliers/all-recent/analyze_video di Kallaway puntata alla nostra API).
+**Outlier score** (semantica Sandcastles): views video ÷ mediana views canale (finestra 90gg, fallback storico se <3 video). Ricalcolato a ogni refresh/ingest.
+**Modifiche web app:**
+- `drizzle/schema.ts` + boot-migration idempotente in `server/_core/index.ts`: tabelle `watchlist_channels` + `watchlist_videos` (UNIQUE canale/video, `analysisJson` per la deep-analysis).
+- `server/watchlist.ts` (fetcher 3 piattaforme + parser input URL/@handle + outlier/engagement) · `server/watchlistService.ts` (orchestrazione refresh/ingest) · helpers in `server/db.ts`.
+- `server/routers.ts`: router tRPC `watchlist` (list/add/remove/refresh/videos/requestAnalysis — quest'ultima inietta `[WATCHLIST → DEEP ANALYSIS]` nel thread chat esistente → la fa l'agente VPS a costo 0).
+- `server/_core/watchlistRoutes.ts`: REST per agente/n8n — `GET/POST /api/social/watchlist/*` (channels, videos ≈ `search_my_videos`, refresh, ingest, analysis) — auth `x-care-secret`.
+- UI: `client/src/pages/SocialWatchlist.tsx` (feed con badge outlier ⚡, filtri periodo/piattaforma/soglia, sidebar watchlist con follower/views 30g, refresh/rimuovi/export CSV, bottone "Analizza" → AI Manager) + rotta `/social/watchlist` + voce sidebar (icona Radar).
+**Verifiche:** typecheck pulito (restano solo i 4 errori pre-esistenti Settings.tsx/vite.config.ts) · vitest 24/24 (11+1 nuovi test su parser/outlier) · boot server OK con route registrate e gate secret funzionante · fetch live YouTube OK.
+**Per il GO-LIVE:** (1) merge su `main` (le tabelle si creano da sole al boot Railway); (2) opzionale `YOUTUBE_API_KEY` nelle Railway Variables per dati YT più precisi; (3) aggiungere la skill watchlist all'agente VPS (`references/skills/smm-watchlist.md`) + task giornaliero refresh+outlier-pulse.
