@@ -287,7 +287,8 @@ async function fetchYouTubeViaScrape(handle: string): Promise<FetchedChannel> {
           platformVideoId: vid,
           url: `https://www.youtube.com/shorts/${vid}`,
           title: short.overlayMetadata?.primaryText?.content,
-          thumbnailUrl: short.thumbnail?.sources?.[0]?.url,
+          // gli Shorts spesso non espongono la thumbnail nel JSON: la URL canonica esiste sempre
+          thumbnailUrl: short.thumbnail?.sources?.[0]?.url ?? `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`,
           views: parseAbbreviatedCount(short.overlayMetadata?.secondaryText?.content),
         });
       }
@@ -313,7 +314,9 @@ async function fetchYouTubeViaScrape(handle: string): Promise<FetchedChannel> {
             ? `https://www.youtube.com/shorts/${lockup.contentId}`
             : `https://www.youtube.com/watch?v=${lockup.contentId}`,
           title: meta?.title?.content,
-          thumbnailUrl: lockup.contentImage?.thumbnailViewModel?.image?.sources?.at(-1)?.url,
+          thumbnailUrl:
+            lockup.contentImage?.thumbnailViewModel?.image?.sources?.at(-1)?.url ??
+            `https://i.ytimg.com/vi/${lockup.contentId}/hqdefault.jpg`,
           views: parseAbbreviatedCount(viewsText),
           publishedAt: parseRelativeDate(dateText),
           durationSec: parseClockDuration(badgeText),

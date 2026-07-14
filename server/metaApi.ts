@@ -230,3 +230,44 @@ export function parseInsightKpis(insight: MetaInsight) {
     conversionRate,
   };
 }
+
+// ─── Instagram Business Discovery (per la Watchlist) ──────────────────────────
+// API ufficiale gratuita: dati pubblici di account IG business/creator terzi,
+// usando il token Meta già collegato — nessuna nuova app richiesta.
+
+export async function getInstagramBusinessId(accessToken: string): Promise<string | null> {
+  const pages = await metaFetch<{ id: string; instagram_business_account?: { id: string } }[]>(
+    "/me/accounts", accessToken, { fields: "instagram_business_account", limit: "50" }
+  );
+  const withIg = (Array.isArray(pages) ? pages : []).find((p) => p.instagram_business_account?.id);
+  return withIg?.instagram_business_account?.id ?? null;
+}
+
+export interface BusinessDiscoveryMedia {
+  id: string;
+  caption?: string;
+  like_count?: number;
+  comments_count?: number;
+  media_url?: string;
+  thumbnail_url?: string;
+  permalink?: string;
+  timestamp?: string;
+  media_type?: string;
+  media_product_type?: string;
+}
+
+export async function instagramBusinessDiscovery(accessToken: string, igUserId: string, handle: string) {
+  if (!/^[\w.]+$/.test(handle)) throw new Error(`Handle Instagram non valido: ${handle}`);
+  const fields = `business_discovery.username(${handle}){followers_count,media_count,name,profile_picture_url,media.limit(30){id,caption,like_count,comments_count,media_url,thumbnail_url,permalink,timestamp,media_type,media_product_type}}`;
+  const res = await metaFetch<{
+    business_discovery?: {
+      id: string;
+      name?: string;
+      followers_count?: number;
+      media_count?: number;
+      profile_picture_url?: string;
+      media?: { data?: BusinessDiscoveryMedia[] };
+    };
+  }>(`/${igUserId}`, accessToken, { fields });
+  return res.business_discovery ?? null;
+}

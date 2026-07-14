@@ -5,8 +5,9 @@
 import {
   findWatchlistChannel, insertWatchlistChannel, updateWatchlistChannel,
   getWatchlistChannelById, getWatchlistChannels, upsertWatchlistVideo,
-  getWatchlistVideoViews, setWatchlistVideoOutlier,
+  getWatchlistVideoViews, setWatchlistVideoOutlier, getMetaAccountsByUserId,
 } from "./db";
+import { getInstagramBusinessId, instagramBusinessDiscovery } from "./metaApi";
 import {
   parseChannelInput, fetchChannel, computeOutlierScores, computeEngagementRate,
   type WatchPlatform, type FetchedChannel, type FetchedVideo,
@@ -32,7 +33,10 @@ export async function recomputeChannelOutliers(channelId: number): Promise<void>
   let vids = await getWatchlistVideoViews(channelId, since);
   // canali con pochi post recenti: usa tutto lo storico come baseline
   if (vids.filter((v) => v.views > 0).length < 3) vids = await getWatchlistVideoViews(channelId);
-  const scores = computeOutlierScores(vids);
+  // Instagram via business_discovery non espone le views dei reel: se il canale
+  // non ha views usabili, l'outlier si calcola sulla stessa metrica per tutti (i like)
+  const useLikes = vids.filter((v) => v.views > 0).length < 3 && vids.filter((v) => v.likes > 0).length >= 3;
+  const scores = computeOutlierScores(vids.map((v) => ({ id: v.id, views: useLikes ? v.likes : v.views })));
   const entries: Array<[number, number]> = [];
   scores.forEach((score, id) => entries.push([id, score]));
   for (const [id, score] of entries) await setWatchlistVideoOutlier(id, score);
@@ -80,12 +84,68 @@ export async function storeFetchedChannel(
   return { videosStored: stored };
 }
 
+/**
+ * Fallback Instagram: Graph API business_discovery col token Meta già collegato
+ * (funziona per account IG business/creator; niente views dei reel, ma follower,
+ * like e commenti sì — l'outlier passa automaticamente sui like).
+ */
+async function fetchInstagramViaMeta(userId: number, handle: string): Promise<FetchedChannel | null> {
+  const accounts = await getMetaAccountsByUserId(userId);
+  let lastError: unknown = null;
+  for (const acc of accounts) {
+    if (!acc.accessToken) continue;
+    try {
+      const igId = await getInstagramBusinessId(acc.accessToken);
+      if (!igId) continue;
+      const bd = await instagramBusinessDiscovery(acc.accessToken, igId, handle);
+      if (!bd) continue;
+      return {
+        handle,
+        displayName: bd.name || handle,
+        avatarUrl: bd.profile_picture_url,
+        followers: Number(bd.followers_count ?? 0),
+        platformChannelId: bd.id,
+        videos: (bd.media?.data ?? []).filter((m) => m.permalink).map((m) => ({
+          platformVideoId: String(m.id),
+          url: String(m.permalink),
+          thumbnailUrl: m.thumbnail_url ?? m.media_url,
+          title: m.caption?.slice(0, 500),
+          publishedAt: m.timestamp ? new Date(m.timestamp) : undefined,
+          views: 0, // business_discovery non espone le views: outlier sui like
+          likes: Number(m.like_count ?? 0),
+          comments: Number(m.comments_count ?? 0),
+        })),
+      };
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  if (lastError) throw lastError;
+  return null;
+}
+
 /** Refresh completo di un canale: fetch piattaforma → upsert video → outlier. */
 export async function refreshWatchlistChannel(channelId: number): Promise<{ ok: boolean; videosStored: number; error?: string }> {
   const channel = await getWatchlistChannelById(channelId);
   if (!channel) return { ok: false, videosStored: 0, error: "Canale non trovato" };
   try {
-    const fetched = await fetchChannel(channel.platform as WatchPlatform, channel.handle);
+    let fetched: FetchedChannel;
+    try {
+      fetched = await fetchChannel(channel.platform as WatchPlatform, channel.handle);
+    } catch (err) {
+      // Instagram blocca il fetch web anonimo: proviamo la Graph API ufficiale
+      if (channel.platform === "instagram") {
+        const viaMeta = await fetchInstagramViaMeta(channel.userId, channel.handle).catch((metaErr) => {
+          const m1 = err instanceof Error ? err.message : String(err);
+          const m2 = metaErr instanceof Error ? metaErr.message : String(metaErr);
+          throw new Error(`${m1} — Fallback Graph API fallito: ${m2}`);
+        });
+        if (!viaMeta) throw err;
+        fetched = viaMeta;
+      } else {
+        throw err;
+      }
+    }
     const { videosStored } = await storeFetchedChannel(channel.userId, channel.id, channel.platform as WatchPlatform, fetched);
     return { ok: true, videosStored };
   } catch (err) {

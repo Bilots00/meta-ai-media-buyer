@@ -582,7 +582,7 @@ export async function getWatchlistVideoViews(channelId: number, since?: Date) {
   const conds = [eq(watchlistVideos.channelId, channelId)];
   // publishedAt NULL (data sconosciuta, es. Shorts scrapeati) = trattato come recente
   if (since) conds.push(or(gte(watchlistVideos.publishedAt, since), isNull(watchlistVideos.publishedAt))!);
-  return db.select({ id: watchlistVideos.id, views: watchlistVideos.views })
+  return db.select({ id: watchlistVideos.id, views: watchlistVideos.views, likes: watchlistVideos.likes })
     .from(watchlistVideos).where(and(...conds));
 }
 
