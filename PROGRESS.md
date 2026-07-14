@@ -92,3 +92,10 @@
 - UI: `client/src/pages/SocialWatchlist.tsx` (feed con badge outlier ⚡, filtri periodo/piattaforma/soglia, sidebar watchlist con follower/views 30g, refresh/rimuovi/export CSV, bottone "Analizza" → AI Manager) + rotta `/social/watchlist` + voce sidebar (icona Radar).
 **Verifiche:** typecheck pulito (restano solo i 4 errori pre-esistenti Settings.tsx/vite.config.ts) · vitest 24/24 (11+1 nuovi test su parser/outlier) · boot server OK con route registrate e gate secret funzionante · fetch live YouTube OK.
 **Per il GO-LIVE:** (1) merge su `main` (le tabelle si creano da sole al boot Railway); (2) opzionale `YOUTUBE_API_KEY` nelle Railway Variables per dati YT più precisi; (3) aggiungere la skill watchlist all'agente VPS (`references/skills/smm-watchlist.md`) + task giornaliero refresh+outlier-pulse.
+
+### 2026-07-15 — Watchlist: fix produzione (thumbnail + Instagram/TikTok via Apify)
+- **Thumbnail nere**: gli Shorts di YouTube non espongono la thumbnail nel nuovo JSON (48/78 video NULL) → URL canonica `i.ytimg.com/vi/{id}/hqdefault.jpg` sia server-side sia come fallback client (ripara anche i dati vecchi senza refresh).
+- **Instagram**: il fetch web anonimo è morto ovunque (429 anche da IP residenziale, pagina anonima = login wall). Catena di fallback implementata: scrape → **Apify** → Graph API `business_discovery` (token Meta già collegato). Apify testato via MCP: `apify/instagram-profile-scraper` = $0.0026/profilo (tier FREE, $5/mese inclusi ≈ 1.900 refresh) — @gernucci: 164K follower + 12 post con like/commenti/thumbnail. Outlier IG calcolato sui like (business_discovery/profile-scraper non espongono le views dei reel).
+- **TikTok**: stesso fallback con `clockworks/tiktok-profile-scraper` (25 video/refresh, ~$0.075).
+- **Da fare (Andrea)**: copiare il token da console.apify.com → Settings → API & Integrations → e crearlo su Railway come variabile `APIFY_TOKEN`.
+- Deploy: `a58b243` + `c109a35` su main.
