@@ -10,6 +10,7 @@ import { registerSocialRoutes } from "./socialRoutes";
 import { registerWatchlistRoutes } from "./watchlistRoutes";
 import { registerImageProxy } from "./imageProxy";
 import { registerResearchRoutes } from "./researchRoutes";
+import { registerDailySchedules } from "./scheduler";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -264,6 +265,9 @@ async function startServer() {
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
   });
+
+  // Job giornalieri (research 09:00, watchlist 08:45 — ora italiana)
+  registerDailySchedules();
 }
 
 startServer().catch(console.error);

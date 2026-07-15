@@ -88,7 +88,7 @@ export default function SeoResearch() {
     onSuccess: (r) => {
       invalidate();
       if (r.queuedForAgent) {
-        if (r.agentOnline) toast.success("🧠 In coda al tuo agente Claude (VPS) — punteggi e chiavi di lettura in arrivo entro 2-3 minuti", { duration: 8000 });
+        if (r.agentOnline) toast.success("🧠 In coda al tuo agente Claude (VPS) — punteggi e chiavi di lettura in arrivo entro ~1 minuto", { duration: 8000 });
         else toast.warning("Agente Claude (VPS) offline e nessun fallback sul server — accendi l'agente oppure aggiungi GEMINI_API_KEY su Railway", { duration: 10000 });
         return;
       }
