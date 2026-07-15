@@ -218,8 +218,21 @@ export const appRouter = router({
       }),
 
     enrichPending: protectedProcedure.mutation(async ({ ctx }) => {
-      const r = await enrichPendingResearch(ctx.user.id, 15);
-      return { enriched: r.enriched } as const;
+      try {
+        const r = await enrichPendingResearch(ctx.user.id, 15);
+        return { enriched: r.enriched, queuedForAgent: false, agentOnline: true };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // niente motore sincrono sul server: il MOTORE PRIMARIO è l'agente VPS
+        // (abbonamento Claude) che passa ogni ~3 min sul research_loop
+        if (/Nessun motore AI/i.test(msg)) {
+          const s = await getAllUserSettings(ctx.user.id);
+          const lastSeen = Number(s.social_local_agent_last_seen ?? 0);
+          const agentOnline = lastSeen > 0 && Date.now() - lastSeen < 120_000;
+          return { enriched: 0, queuedForAgent: true, agentOnline };
+        }
+        throw err;
+      }
     }),
 
     generateContent: protectedProcedure

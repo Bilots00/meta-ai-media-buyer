@@ -126,17 +126,22 @@ export async function enrichPendingResearch(userId: number, limit = ENRICH_BATCH
 
 /** Scrive i risultati di un arricchimento (dal server o dall'agente VPS Claude). */
 export async function applyEnrichmentResults(
-  results: Array<{ id: number; targetScore: number; interestScore: number; brief?: string; angle?: string; commentAnalysis?: string }>
+  results: Array<{ id: number; targetScore: number; interestScore: number; brief?: string; angle?: string; commentAnalysis?: string; engagement?: number }>
 ): Promise<number> {
   let applied = 0;
   for (const r of results) {
     if (typeof r.id !== "number") continue;
+    const engagement = Number(r.engagement);
     await updateResearchItem(r.id, {
       targetScore: Math.max(0, Math.min(10, Math.round(Number(r.targetScore ?? 0)))),
       interestScore: Math.max(0, Math.min(10, Math.round(Number(r.interestScore ?? 0)))),
       brief: sanitizeText(r.brief, 2000) ?? null,
       angle: sanitizeText(r.angle, 2000) ?? null,
       ...(r.commentAnalysis ? { commentAnalysis: sanitizeText(r.commentAnalysis, 2000) ?? null } : {}),
+      // l'agente può leggere l'engagement reale (upvote+commenti): aggiorna anche la viralità
+      ...(Number.isFinite(engagement) && engagement > 0
+        ? { engagement: Math.round(engagement), viralityScore: viralityFromEngagement(Math.round(engagement)) }
+        : {}),
       enrichedAt: new Date(),
     });
     applied++;

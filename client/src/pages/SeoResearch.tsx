@@ -41,6 +41,7 @@ function ScoreChip({ label, value }: { label: string; value: number | null | und
 
 const fmtDate = (d: string | Date | null | undefined) =>
   d ? new Date(d).toLocaleDateString("it-IT", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
+const nf = new Intl.NumberFormat("it-IT", { notation: "compact", maximumFractionDigits: 1 });
 
 export default function SeoResearch() {
   const utils = trpc.useUtils();
@@ -84,7 +85,15 @@ export default function SeoResearch() {
   });
   const setItemStatus = trpc.research.setStatus.useMutation({ onSuccess: invalidate, onError: (e) => toast.error(e.message) });
   const enrich = trpc.research.enrichPending.useMutation({
-    onSuccess: (r) => { invalidate(); toast.success(`${r.enriched} item analizzati dall'AI`); },
+    onSuccess: (r) => {
+      invalidate();
+      if (r.queuedForAgent) {
+        if (r.agentOnline) toast.success("🧠 In coda al tuo agente Claude (VPS) — punteggi e chiavi di lettura in arrivo entro 2-3 minuti", { duration: 8000 });
+        else toast.warning("Agente Claude (VPS) offline e nessun fallback sul server — accendi l'agente oppure aggiungi GEMINI_API_KEY su Railway", { duration: 10000 });
+        return;
+      }
+      toast.success(`${r.enriched} item analizzati dall'AI`);
+    },
     onError: (e) => toast.error(e.message),
   });
   const generate = trpc.research.generateContent.useMutation({
@@ -215,6 +224,12 @@ export default function SeoResearch() {
                 <ScoreChip label="vir" value={i.viralityScore} />
                 <ScoreChip label="targ" value={i.targetScore} />
                 <ScoreChip label="int" value={i.interestScore} />
+                <span className="inline-flex flex-col items-center rounded-lg px-2 py-1" style={{ background: "oklch(0.2 0.02 260)", minWidth: 48 }}>
+                  <span className="text-sm font-bold leading-none" style={{ color: i.engagement > 0 ? "oklch(0.75 0.15 265)" : "oklch(0.55 0.02 260)" }}>
+                    {i.engagement > 0 ? nf.format(i.engagement) : "—"}
+                  </span>
+                  <span className="text-[9px] uppercase tracking-wider mt-0.5" style={{ color: "oklch(0.55 0.02 260)" }}>eng</span>
+                </span>
               </div>
               <div className="flex gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                 <Button size="sm" variant="ghost" className="h-8 w-8 p-0" title="Salva"
