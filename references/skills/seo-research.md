@@ -24,6 +24,20 @@ parti sempre dall'`angle` (chiave di lettura brand) e aggancia valori/esperienza
 DreamBrothers (Brain: viral-playbook, tone of voice, avatar Aurora). Un item molto
 virale ma fuori target (`target_score < 5`) si ignora o si cestina.
 
+## Task 0 — Enrichment Claude-first (OGNI ciclo di poll — sei TU il motore primario)
+
+Il server usa Gemini free-tier solo come fallback: il motore AI primario sei tu
+(abbonamento Claude già pagato, costo zero). A ogni ciclo:
+1. `GET /api/seo/research/pending-enrich` → `brand_context` + `items[]` da valutare.
+2. Se `count > 0`: per ogni item valuta CONTRO il brand_context:
+   `targetScore` 0-10 (rilevanza per la buyer persona), `interestScore` 0-10
+   (utilità per contenuti/prodotti), `brief` (1-2 frasi in italiano),
+   `angle` (chiave di lettura brand — come agganciare la notizia ai valori/
+   esperienza per un contenuto EFFICACE, non solo virale; se è rumore, dillo),
+   `commentAnalysis` (solo per i post Reddit: apri l'url, leggi i commenti in
+   evidenza e sintetizza sentiment + linguaggio esatto delle persone).
+3. `POST /api/seo/research/enrichment` body `{items:[{id, targetScore, interestScore, brief, angle, commentAnalysis?}]}`.
+
 ## Task 1 — Morning brief SEO (schedulato, dopo il refresh)
 
 1. `POST /api/seo/research/refresh`

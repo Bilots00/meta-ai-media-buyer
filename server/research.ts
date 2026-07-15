@@ -252,6 +252,60 @@ export async function fetchAllResearchSources(cfg: ResearchSourcesConfig): Promi
 }
 
 // ─── LLM helpers ──────────────────────────────────────────────────────────────
+/**
+ * Gerarchia motori AI del Research Hub (scelta di Andrea):
+ *   1° PRIMARIO: l'agente VPS con l'abbonamento Claude già pagato (costo zero) —
+ *      lavora in background via GET /api/seo/research/pending-enrich +
+ *      POST /api/seo/research/enrichment (vedi references/skills/seo-research.md)
+ *   2° FALLBACK sincrono (bottoni "Analizza AI" / "Genera contenuti"): Gemini
+ *      free-tier con GEMINI_API_KEY (gratuita da aistudio.google.com)
+ *   3° legacy: proxy Forge/Manus se configurato. NIENTE OpenAI.
+ */
+async function geminiGenerate(system: string, user: string): Promise<string> {
+  const key = process.env.GEMINI_API_KEY!;
+  const models = ["gemini-2.5-flash", "gemini-2.0-flash"];
+  let lastErr = "";
+  for (const model of models) {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{ role: "user", parts: [{ text: user }] }],
+          generationConfig: { responseMimeType: "application/json", maxOutputTokens: 8192, temperature: 0.7 },
+        }),
+        signal: AbortSignal.timeout(120_000),
+      }
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      lastErr = `Gemini ${model}: HTTP ${res.status} ${body.slice(0, 150)}`;
+      continue;
+    }
+    const json = (await res.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+    const text = (json.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("");
+    if (text.trim()) return text;
+    lastErr = `Gemini ${model}: risposta vuota`;
+  }
+  throw new Error(lastErr || "Gemini non raggiungibile");
+}
+
+/** Esegue il prompt col primo motore disponibile (Gemini free → Forge legacy). */
+export async function runResearchLLM(system: string, user: string): Promise<string> {
+  if (process.env.GEMINI_API_KEY) return geminiGenerate(system, user);
+  if (process.env.BUILT_IN_FORGE_API_KEY) {
+    const response = await invokeLLM({
+      messages: [{ role: "system", content: system }, { role: "user", content: user }],
+    });
+    return llmContentToString((response as { content?: unknown }).content);
+  }
+  throw new Error(
+    "Nessun motore AI sul server: aggiungi GEMINI_API_KEY (gratuita: aistudio.google.com → Get API key) nelle Railway Variables. In alternativa l'agente VPS Claude può fare l'analisi in background (skill seo-research)"
+  );
+}
+
 /** Estrae il testo dalla risposta LLM: gestisce stringa, array di parti, oggetti. */
 export function llmContentToString(raw: unknown): string {
   if (typeof raw === "string") return raw;
@@ -320,11 +374,7 @@ export async function enrichResearchItems(
     estratto: (i.excerpt ?? "").slice(0, 400),
     ...(i.comments?.length ? { commenti: i.comments.slice(0, 8) } : {}),
   }));
-  const response = await invokeLLM({
-    messages: [
-      {
-        role: "system",
-        content: `Sei il Market Intelligence Strategist di un brand e-commerce. Valuti notizie/conversazioni di mercato CONTRO il contesto del brand.
+  const systemPrompt = `Sei il Market Intelligence Strategist di un brand e-commerce. Valuti notizie/conversazioni di mercato CONTRO il contesto del brand.
 ${brandContext}
 
 Per ogni item restituisci:
@@ -334,12 +384,8 @@ Per ogni item restituisci:
 - angle: la CHIAVE DI LETTURA — come il brand può agganciare questa notizia ai propri valori/esperienza per un contenuto EFFICACE (non solo virale). Se la notizia è puro rumore fuori target, dillo chiaramente e suggerisci di ignorarla.
 - commentAnalysis (SOLO se l'item ha "commenti"): 2-3 frasi in italiano — sentiment e temi ricorrenti della conversazione, con il linguaggio esatto usato dalle persone (utile per copy e ads).
 
-Rispondi SOLO con JSON valido: {"items":[{"id":number,"targetScore":number,"interestScore":number,"brief":string,"angle":string,"commentAnalysis":string|null}]}`,
-      },
-      { role: "user", content: JSON.stringify(list) },
-    ],
-  });
-  const content = llmContentToString((response as { content?: unknown }).content);
+Rispondi SOLO con JSON valido: {"items":[{"id":number,"targetScore":number,"interestScore":number,"brief":string,"angle":string,"commentAnalysis":string|null}]}`;
+  const content = await runResearchLLM(systemPrompt, JSON.stringify(list));
   const parsed = extractJson<{ items?: EnrichmentResult[] }>(content);
   if (!parsed) {
     throw new Error(`Risposta AI non interpretabile (primi 120 char: ${content.slice(0, 120)})`);

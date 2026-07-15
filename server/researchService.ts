@@ -8,10 +8,9 @@ import {
   getAllUserSettings, upsertUserSetting, getResearchItemById,
   ensureResearchTable, insertSocialDraft, getResearchItems,
 } from "./db";
-import { invokeLLM } from "./_core/llm";
 import {
   fetchAllResearchSources, enrichResearchItems, researchUrlHash, sanitizeText,
-  viralityFromEngagement, fetchRedditComments, llmContentToString, extractJson,
+  viralityFromEngagement, fetchRedditComments, extractJson, runResearchLLM,
   DEFAULT_SOURCES, DEFAULT_BRAND_CONTEXT,
   type ResearchSourcesConfig, type FetchedResearchItem, type ResearchSource,
 } from "./research";
@@ -121,17 +120,28 @@ export async function enrichPendingResearch(userId: number, limit = ENRICH_BATCH
     pending.map((p) => ({ id: p.id, title: p.title, excerpt: p.excerpt, source: p.source, comments: commentsById.get(p.id) })),
     brandContext
   );
+  await applyEnrichmentResults(results);
+  return { enriched: results.length, items: results.map((r) => ({ id: r.id, targetScore: r.targetScore, interestScore: r.interestScore })) };
+}
+
+/** Scrive i risultati di un arricchimento (dal server o dall'agente VPS Claude). */
+export async function applyEnrichmentResults(
+  results: Array<{ id: number; targetScore: number; interestScore: number; brief?: string; angle?: string; commentAnalysis?: string }>
+): Promise<number> {
+  let applied = 0;
   for (const r of results) {
+    if (typeof r.id !== "number") continue;
     await updateResearchItem(r.id, {
-      targetScore: r.targetScore,
-      interestScore: r.interestScore,
+      targetScore: Math.max(0, Math.min(10, Math.round(Number(r.targetScore ?? 0)))),
+      interestScore: Math.max(0, Math.min(10, Math.round(Number(r.interestScore ?? 0)))),
       brief: sanitizeText(r.brief, 2000) ?? null,
       angle: sanitizeText(r.angle, 2000) ?? null,
       ...(r.commentAnalysis ? { commentAnalysis: sanitizeText(r.commentAnalysis, 2000) ?? null } : {}),
       enrichedAt: new Date(),
     });
+    applied++;
   }
-  return { enriched: results.length, items: results.map((r) => ({ id: r.id, targetScore: r.targetScore, interestScore: r.interestScore })) };
+  return applied;
 }
 
 /** Refresh completo: fetch fonti → store → arricchimento LLM del top. */
@@ -206,11 +216,7 @@ export async function generateContentFromResearch(
   const { brandContext } = await getResearchConfig(userId);
   const wanted = formats.length ? formats : ["blog", "x", "facebook"];
 
-  const response = await invokeLLM({
-    messages: [
-      {
-        role: "system",
-        content: `Sei il SEO & Content Specialist di questo brand:
+  const systemPrompt = `Sei il SEO & Content Specialist di questo brand:
 ${brandContext}
 
 REGOLA VINCOLANTE (anti-traffico-freddo): NON commentare la notizia da divulgatore. Usa la notizia solo come aggancio: il contenuto deve partire dalla CHIAVE DI LETTURA del brand, parlare alla buyer persona con il tone of voice del brand e nutrire il posizionamento. Scrivi in italiano.
@@ -221,11 +227,8 @@ Genera SOLO i formati richiesti. Rispondi SOLO con JSON valido:
  "x": {"text": string (max 270 caratteri, hook forte nella prima riga, 1-2 hashtag)},
  "facebook": {"text": string (taglio conversazionale, storytelling breve, domanda di engagement finale, 2-3 hashtag)}
 }
-Ometti i formati non richiesti.`,
-      },
-      {
-        role: "user",
-        content: `Formati richiesti: ${wanted.join(", ")}
+Ometti i formati non richiesti.`;
+  const userPrompt = `Formati richiesti: ${wanted.join(", ")}
 
 NOTIZIA/TREND DI PARTENZA
 Fonte: ${item.source}${item.sourceDetail ? ` · ${item.sourceDetail}` : ""}
@@ -233,12 +236,9 @@ Titolo: ${item.title}
 ${item.brief ? `Brief: ${item.brief}` : ""}
 ${item.angle ? `CHIAVE DI LETTURA BRAND (da cui partire): ${item.angle}` : ""}
 ${item.commentAnalysis ? `Linguaggio della conversazione: ${item.commentAnalysis}` : ""}
-${item.excerpt ? `Estratto: ${item.excerpt.slice(0, 600)}` : ""}`,
-      },
-    ],
-  });
+${item.excerpt ? `Estratto: ${item.excerpt.slice(0, 600)}` : ""}`;
 
-  const content = llmContentToString((response as { content?: unknown }).content);
+  const content = await runResearchLLM(systemPrompt, userPrompt);
   const parsed = extractJson<{
     blog?: { title?: string; metaDescription?: string; keywords?: string; html?: string };
     x?: { text?: string };

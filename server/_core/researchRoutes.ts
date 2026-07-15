@@ -1,6 +1,9 @@
 import type { Express, Request, Response } from "express";
-import { getResearchItems, updateResearchItem, getResearchItemById } from "../db";
-import { refreshResearch, ingestResearchItems, enrichPendingResearch } from "../researchService";
+import { getResearchItems, updateResearchItem, getResearchItemById, getUnenrichedResearchItems } from "../db";
+import {
+  refreshResearch, ingestResearchItems, enrichPendingResearch,
+  applyEnrichmentResults, getResearchConfig,
+} from "../researchService";
 
 // SEO & Research endpoints per l'agente VPS / n8n / cron — stesso modello della
 // watchlist: il feed è infrastruttura condivisa, chiunque (SEO Specialist, SMM,
@@ -92,6 +95,44 @@ export function registerResearchRoutes(app: Express) {
     } catch (err) {
       console.warn("[research/refresh] error:", err);
       res.status(500).json({ error: "refresh failed" });
+    }
+  });
+
+  // MOTORE PRIMARIO (agente VPS = abbonamento Claude, costo zero): item da valutare
+  app.get("/api/seo/research/pending-enrich", async (req: Request, res: Response) => {
+    if (!checkSecret(req, res)) return;
+    try {
+      const { brandContext } = await getResearchConfig(OWNER_USER_ID);
+      const pending = await getUnenrichedResearchItems(OWNER_USER_ID, 15);
+      res.json({
+        success: true,
+        count: pending.length,
+        brand_context: brandContext,
+        items: pending.map((p) => ({
+          id: p.id, source: p.source, source_detail: p.sourceDetail,
+          title: p.title, url: p.url, excerpt: p.excerpt,
+        })),
+      });
+    } catch (err) {
+      console.warn("[research/pending-enrich] error:", err);
+      res.status(500).json({ error: "pending-enrich failed" });
+    }
+  });
+
+  // MOTORE PRIMARIO: l'agente VPS riconsegna punteggi + brief + chiave di lettura
+  app.post("/api/seo/research/enrichment", async (req: Request, res: Response) => {
+    if (!checkSecret(req, res)) return;
+    try {
+      const { items } = req.body ?? {};
+      if (!Array.isArray(items) || items.length === 0) {
+        res.status(400).json({ error: "items[] is required (id, targetScore, interestScore, brief, angle, commentAnalysis?)" });
+        return;
+      }
+      const applied = await applyEnrichmentResults(items);
+      res.json({ success: true, applied });
+    } catch (err) {
+      console.warn("[research/enrichment] error:", err);
+      res.status(500).json({ error: "enrichment failed" });
     }
   });
 
