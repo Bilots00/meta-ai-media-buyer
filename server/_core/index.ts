@@ -8,6 +8,7 @@ import { registerStorageProxy } from "./storageProxy";
 import { registerCareRoutes } from "./careRoutes";
 import { registerSocialRoutes } from "./socialRoutes";
 import { registerWatchlistRoutes } from "./watchlistRoutes";
+import { registerImageProxy } from "./imageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -204,6 +205,7 @@ async function startServer() {
   registerCareRoutes(app);
   registerSocialRoutes(app);
   registerWatchlistRoutes(app);
+  registerImageProxy(app);
   // tRPC API
   app.use(
     "/api/trpc",

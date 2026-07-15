@@ -14,6 +14,18 @@ const PLATFORMS: Record<string, { label: string; icon: ElementType; color: strin
   tiktok: { label: "TikTok", icon: Music2, color: "oklch(0.75 0.15 195)" },
 };
 
+// IG/TikTok bloccano l'hotlinking cross-origin: instrada le loro immagini dal
+// proxy server (/api/img). YouTube (i.ytimg.com) e i data-URI passano diretti.
+function proxied(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  if (url.startsWith("data:")) return url;
+  if (/(^|\.)ytimg\.com|googleusercontent\.com|ggpht\.com/.test(url)) return url;
+  if (/cdninstagram\.com|fbcdn\.net|tiktokcdn|ttwstatic\.com/.test(url)) {
+    return `/api/img?url=${encodeURIComponent(url)}`;
+  }
+  return url;
+}
+
 const nf = new Intl.NumberFormat("it-IT", { notation: "compact", maximumFractionDigits: 1 });
 const fmtNum = (n: number | null | undefined) => (n != null && n > 0 ? nf.format(n) : "—");
 const fmtDate = (d: string | Date | null | undefined) =>
@@ -200,7 +212,8 @@ export default function SocialWatchlist() {
               const os = outlierStyle(score);
               const eng = v.engagementRate != null ? `${(parseFloat(String(v.engagementRate)) * 100).toFixed(1)}%` : null;
               // fallback: la thumbnail canonica YouTube esiste sempre, anche se il fetch non l'ha trovata
-              const thumbSrc = v.thumbnailUrl ?? (v.platform === "youtube" ? `https://i.ytimg.com/vi/${v.platformVideoId}/hqdefault.jpg` : null);
+              const rawThumb = v.thumbnailUrl ?? (v.platform === "youtube" ? `https://i.ytimg.com/vi/${v.platformVideoId}/hqdefault.jpg` : null);
+              const thumbSrc = proxied(rawThumb);
               return (
                 <div key={v.id} className="rounded-2xl overflow-hidden flex flex-col" style={{ background: "oklch(0.14 0.015 260)", border: "1px solid oklch(0.2 0.015 260)" }}>
                   <a href={v.url} target="_blank" rel="noreferrer" className="relative block aspect-video" style={{ background: "oklch(0.1 0.01 260)" }}>
@@ -210,7 +223,7 @@ export default function SocialWatchlist() {
                         onError={(e) => {
                           const img = e.target as HTMLImageElement;
                           const canonical = v.platform === "youtube" ? `https://i.ytimg.com/vi/${v.platformVideoId}/hqdefault.jpg` : null;
-                          if (canonical && img.src !== canonical) img.src = canonical;
+                          if (canonical && !img.src.includes("ytimg.com")) img.src = canonical;
                           else img.style.display = "none";
                         }} />
                     )}
@@ -290,7 +303,7 @@ export default function SocialWatchlist() {
                 <div key={c.id} className="flex items-center gap-2.5 rounded-xl px-2 py-2 group" style={{ background: "oklch(0.16 0.015 260)" }}>
                   <div className="relative shrink-0">
                     {c.avatarUrl ? (
-                      <img src={c.avatarUrl} alt={c.handle} referrerPolicy="no-referrer" className="w-9 h-9 rounded-full object-cover"
+                      <img src={proxied(c.avatarUrl)} alt={c.handle} referrerPolicy="no-referrer" className="w-9 h-9 rounded-full object-cover"
                         onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
                     ) : (
                       <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: `${p.color}22`, color: p.color }}>
