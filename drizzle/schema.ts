@@ -468,3 +468,87 @@ export const researchItems = mysqlTable("research_items", {
 ]);
 
 export type ResearchItem = typeof researchItems.$inferSelect;
+
+// ─── Market Intelligence: competitor Shopify stores (clone GLITCH) ────────────
+export const marketStores = mysqlTable("market_stores", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  label: varchar("label", { length: 255 }).notNull(),
+  domain: varchar("domain", { length: 255 }).notNull(), // normalizzato: no schema, no slash finale
+  platform: varchar("platform", { length: 16 }).default("shopify").notNull(),
+  status: mysqlEnum("status", ["pending", "active", "error", "paused"]).default("pending").notNull(),
+  frequencyHours: int("frequencyHours").default(24).notNull(),
+  collectionsFilter: text("collectionsFilter"), // JSON array di collection handle (opzionale)
+  isShopify: boolean("isShopify").default(true).notNull(),
+  productCount: int("productCount").default(0).notNull(),
+  lastError: text("lastError"),
+  lastRefreshAt: timestamp("lastRefreshAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => [uniqueIndex("uq_market_store").on(t.userId, t.domain)]);
+export type MarketStore = typeof marketStores.$inferSelect;
+
+export const marketProducts = mysqlTable("market_products", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  storeId: int("storeId").notNull(),
+  productId: varchar("productId", { length: 64 }).notNull(),
+  handle: varchar("handle", { length: 255 }),
+  title: text("title").notNull(),
+  productType: varchar("productType", { length: 255 }),
+  vendor: varchar("vendor", { length: 255 }),
+  tags: text("tags"),
+  url: text("url"),
+  imageUrl: text("imageUrl"),
+  minPrice: decimal("minPrice", { precision: 12, scale: 2 }),
+  compareAtPrice: decimal("compareAtPrice", { precision: 12, scale: 2 }),
+  currency: varchar("currency", { length: 8 }),
+  available: boolean("available").default(true).notNull(),
+  totalVariants: int("totalVariants").default(0).notNull(),
+  variantsAvailable: int("variantsAvailable").default(0).notNull(),
+  publishedAt: timestamp("publishedAt"),
+  firstSeenAt: timestamp("firstSeenAt"),
+  lastSeenAt: timestamp("lastSeenAt"),
+  active: boolean("active").default(true).notNull(),
+  bestSellerRank: int("bestSellerRank"),
+  estUnits: int("estUnits"),
+  estMethod: varchar("estMethod", { length: 24 }),
+  estConfidence: varchar("estConfidence", { length: 8 }),
+}, (t) => [uniqueIndex("uq_market_product").on(t.storeId, t.productId)]);
+export type MarketProduct = typeof marketProducts.$inferSelect;
+
+export const marketSnapshots = mysqlTable("market_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  storeId: int("storeId").notNull(),
+  productId: varchar("productId", { length: 64 }).notNull(),
+  minPrice: decimal("minPrice", { precision: 12, scale: 2 }),
+  compareAtPrice: decimal("compareAtPrice", { precision: 12, scale: 2 }),
+  available: boolean("available").default(true).notNull(),
+  variantsAvailable: int("variantsAvailable").default(0).notNull(),
+  totalVariants: int("totalVariants").default(0).notNull(),
+  trueStock: int("trueStock"),
+  bestSellerRank: int("bestSellerRank"),
+  reviewCount: int("reviewCount"),
+  capturedAt: timestamp("capturedAt").defaultNow().notNull(),
+});
+export type MarketSnapshot = typeof marketSnapshots.$inferSelect;
+
+export const marketChanges = mysqlTable("market_changes", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  storeId: int("storeId").notNull(),
+  productId: varchar("productId", { length: 64 }),
+  changeType: varchar("changeType", { length: 24 }).notNull(),
+  title: text("title"),
+  url: text("url"),
+  oldValue: text("oldValue"),
+  newValue: text("newValue"),
+  detail: text("detail"),
+  brief: text("brief"),
+  angle: text("angle"),
+  score: int("score"),
+  status: mysqlEnum("status", ["nuovo", "letto", "archiviato"]).default("nuovo").notNull(),
+  detectedAt: timestamp("detectedAt").defaultNow().notNull(),
+  enrichedAt: timestamp("enrichedAt"),
+});
+export type MarketChange = typeof marketChanges.$inferSelect;
