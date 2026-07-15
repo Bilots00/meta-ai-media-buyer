@@ -8,7 +8,7 @@ import {
   getAllUserSettings, upsertUserSetting, insertSocialChatMessage, getResearchItemById,
 } from "./db";
 import {
-  fetchAllResearchSources, enrichResearchItems, researchUrlHash,
+  fetchAllResearchSources, enrichResearchItems, researchUrlHash, sanitizeText,
   viralityFromEngagement, DEFAULT_SOURCES, DEFAULT_BRAND_CONTEXT,
   type ResearchSourcesConfig, type FetchedResearchItem, type ResearchSource,
 } from "./research";
@@ -39,26 +39,35 @@ export async function saveResearchConfig(userId: number, cfg: { sources?: Resear
   if (cfg.brandContext != null) await upsertUserSetting(userId, "seo_brand_context", cfg.brandContext);
 }
 
-/** Scrive gli item (dedup su urlHash); ritorna quanti sono nuovi. */
+/** Scrive gli item (dedup su urlHash); ritorna quanti sono nuovi. Resiliente per-item. */
 export async function storeResearchItems(userId: number, items: FetchedResearchItem[]): Promise<number> {
   let stored = 0;
+  const failed: string[] = [];
   for (const it of items) {
-    if (!it.title) continue;
-    const isNew = await insertResearchItemIfNew({
-      userId,
-      source: it.source,
-      sourceDetail: it.sourceDetail?.slice(0, 191) ?? null,
-      title: it.title,
-      url: it.url ?? null,
-      urlHash: researchUrlHash(it.url, it.title),
-      excerpt: it.excerpt ?? null,
-      fullText: it.fullText ?? null,
-      viralityScore: it.viralityScore,
-      engagement: it.engagement,
-      publishedAt: it.publishedAt ?? null,
-    });
-    if (isNew) stored++;
+    const title = sanitizeText(it.title, 500);
+    if (!title) continue;
+    try {
+      // dedup sul titolo originale (deterministico tra i refresh)
+      const isNew = await insertResearchItemIfNew({
+        userId,
+        source: it.source,
+        sourceDetail: sanitizeText(it.sourceDetail, 191) ?? null,
+        title,
+        url: it.url ?? null,
+        urlHash: researchUrlHash(it.url, it.title),
+        excerpt: sanitizeText(it.excerpt, 1500) ?? null,
+        fullText: sanitizeText(it.fullText, 60_000) ?? null,
+        viralityScore: it.viralityScore,
+        engagement: it.engagement,
+        publishedAt: it.publishedAt ?? null,
+      });
+      if (isNew) stored++;
+    } catch (err) {
+      // un item malformato non deve mai far fallire l'intero refresh
+      failed.push(`${it.source}/${it.sourceDetail ?? ""}: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
+  if (failed.length) console.warn(`[research] ${failed.length} item non salvati (saltati):`, failed.slice(0, 3));
   return stored;
 }
 
@@ -75,8 +84,8 @@ export async function enrichPendingResearch(userId: number, limit = ENRICH_BATCH
     await updateResearchItem(r.id, {
       targetScore: r.targetScore,
       interestScore: r.interestScore,
-      brief: r.brief,
-      angle: r.angle,
+      brief: sanitizeText(r.brief, 2000) ?? null,
+      angle: sanitizeText(r.angle, 2000) ?? null,
       enrichedAt: new Date(),
     });
   }

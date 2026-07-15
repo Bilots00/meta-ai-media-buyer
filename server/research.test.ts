@@ -1,5 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { parseRssItems, viralityFromEngagement, researchUrlHash } from "./research";
+import { parseRssItems, viralityFromEngagement, researchUrlHash, sanitizeText } from "./research";
+
+describe("sanitizeText (fix insert MySQL su emoji tagliate)", () => {
+  const hasLoneSurrogate = (s: string) =>
+    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s);
+
+  it("rimuove un surrogato alto orfano lasciato da uno slice a metà emoji", () => {
+    const broken = "ciao 😀 mondo".slice(0, 6); // "ciao \uD83D"
+    expect(hasLoneSurrogate(broken)).toBe(true);
+    expect(hasLoneSurrogate(sanitizeText(broken)!)).toBe(false);
+  });
+
+  it("non lascia un surrogato orfano quando maxLen cade dentro un'emoji", () => {
+    const out = sanitizeText("test 🎯🎯🎯", 6)!;
+    expect(hasLoneSurrogate(out)).toBe(false);
+  });
+
+  it("preserva le emoji intere e il testo normale", () => {
+    expect(sanitizeText("hello 😀✨", 100)).toBe("hello 😀✨");
+    expect(sanitizeText(null)).toBeUndefined();
+  });
+});
 
 describe("parseRssItems", () => {
   it("estrae titolo, link, data e descrizione dagli <item>", () => {

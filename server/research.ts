@@ -59,6 +59,23 @@ export function researchUrlHash(url: string | undefined, title: string): string 
   return createHash("sha256").update(`${url ?? ""}|${title}`).digest("hex");
 }
 
+/**
+ * Ripulisce il testo per l'inserimento in MySQL/TiDB:
+ * - rimuove i surrogati UTF-16 spaiati (tipici di un'emoji tagliata a metà da uno
+ *   slice) che MySQL rifiuta come "Incorrect string value"
+ * - taglia a maxLen senza lasciare un surrogato alto orfano in coda
+ */
+export function sanitizeText(s: string | undefined | null, maxLen = 2000): string | undefined {
+  if (s == null) return undefined;
+  let clean = String(s)
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, "") // surrogato alto senza basso
+    .replace(/(^|[^\uD800-\uDBFF])([\uDC00-\uDFFF])/g, "$1"); // surrogato basso orfano
+  if (clean.length > maxLen) {
+    clean = clean.slice(0, maxLen).replace(/[\uD800-\uDBFF]$/, "");
+  }
+  return clean;
+}
+
 /** Punteggio 0-10 da metrica grezza (upvotes+commenti, traffico trend, ...). */
 export function viralityFromEngagement(engagement: number): number {
   if (engagement <= 0) return 5; // fonti senza metrica: neutro

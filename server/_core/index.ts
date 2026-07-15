@@ -191,6 +191,14 @@ async function runMigrations() {
       INDEX idx_research_published (publishedAt)
     )`);
     console.log("[Migrate] Tabella research_items pronta");
+    // Assicura utf8mb4 (emoji): converte SOLO se la tabella non lo è già (no-op sui boot successivi)
+    const info: any = await db.execute(sql`SELECT CCSA.CHARACTER_SET_NAME AS cs FROM information_schema.\`TABLES\` T JOIN information_schema.COLLATION_CHARACTER_SET_APPLICABILITY CCSA ON CCSA.COLLATION_NAME = T.TABLE_COLLATION WHERE T.TABLE_SCHEMA = DATABASE() AND T.TABLE_NAME = 'research_items'`);
+    const rows = Array.isArray(info) ? (Array.isArray(info[0]) ? info[0] : info) : [];
+    const cs = rows?.[0]?.cs ?? "";
+    if (cs && cs !== "utf8mb4") {
+      await db.execute(sql`ALTER TABLE research_items CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+      console.log(`[Migrate] research_items convertita da ${cs} a utf8mb4`);
+    }
   } catch (err) {
     console.warn("[Migrate] tabella research_items non creata:", err);
   }

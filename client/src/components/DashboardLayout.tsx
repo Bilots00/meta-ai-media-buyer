@@ -252,7 +252,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <NavGroup
             label="SEO & Research"
             icon={TrendingUp}
-            color="oklch(0.7 0.16 150)"
+            color="oklch(0.74 0.12 195)"
             items={SEO_ITEMS}
             location={location}
             navigate={navigate}
