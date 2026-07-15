@@ -44,6 +44,7 @@ import {
   runAllStoresCycle, runStoreMonitorCycle, getMarketConfig, saveMarketConfig, generateOpportunityBrief,
 } from "./marketIntelService";
 import { normalizeDomain, isShopifyStore } from "./marketIntel";
+import { researchEtsyKeyword, analyzeEtsyShop } from "./etsyIntel";
 
 function fmtClock(d: Date | string): string {
   return new Date(d).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" });
@@ -116,6 +117,11 @@ export const appRouter = router({
     setConfig: protectedProcedure.input(z.object({ brandContext: z.string().optional(), autopilot: z.boolean().optional(), minScore: z.number().optional(), reviewRate: z.number().optional() }))
       .mutation(async ({ ctx, input }) => { await saveMarketConfig(ctx.user.id, input); return { success: true } as const; }),
     brief: protectedProcedure.input(z.object({ hours: z.number().optional() })).query(async ({ ctx, input }) => ({ brief: await generateOpportunityBrief(ctx.user.id, input.hours) })),
+    // Etsy Product Research (metodo Everbee/Alura via Firecrawl stealth)
+    etsyKeyword: protectedProcedure.input(z.object({ query: z.string().min(2), limit: z.number().min(1).max(60).optional() }))
+      .mutation(async ({ input }) => researchEtsyKeyword(input.query, { limit: input.limit })),
+    etsyShop: protectedProcedure.input(z.object({ url: z.string().min(3) }))
+      .mutation(async ({ input }) => analyzeEtsyShop(input.url)),
   }),
 
   // ─── Social Organico: AI Manager chat + Bozze ───────────────────────────────

@@ -40,3 +40,19 @@ citare la stima col suo margine.
 ## Task 1 — Morning brief (schedulato, dopo il refresh 09:15)
 1. `POST /api/market/refresh`  2. `GET /api/market/changes?hours=24&min_score=6&limit=10`
 3. Rispondi in chat (`POST /api/social/reply`) coi 5 migliori: `[SCORE x] titolo — angle — url`.
+
+## Etsy Product Research (metodo Everbee/Alura, senza abbonamenti)
+Etsy BLOCCA lo scraping diretto (403 anti-bot): per questo Everbee/Alura sono estensioni Chrome.
+Noi usiamo **Firecrawl stealth** (browser reale + IP residenziale) → serve `FIRECRAWL_API_KEY` sul server.
+
+| Endpoint | Uso |
+|---|---|
+| `POST /api/market/etsy` body `{mode:"keyword",query,limit?}` | bestseller di una nicchia: listing con reviewCount, badge Bestseller, prezzo, stima vendite, opportunityScore |
+| `POST /api/market/etsy` body `{mode:"shop",url}` | analisi shop competitor: vendite totali (dato pubblico), reviews, media mensile storica |
+
+Dati **hard** (reali, pubblici): `reviewCount`, badge `Bestseller`/`Star Seller`, `totalSales` shop.
+Stima **etichettata**: vendite lifetime ≈ reviewCount / reviewRate (default 10%). Ranking primario sui dati hard, non sulla stima.
+
+**Flusso vincente**: keyword nicchia → top per opportunityScore/Bestseller = validati dal mercato →
+**redesign + copy tuoi** (mai copia: nuovo visual, nuovo testo, tuo brand) → carica su Shopify come prodotto tuo.
+L'Etsy listing è **validazione + ispirazione**, NON un template da clonare (no copyright).

@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { getMarketChanges, getUnenrichedMarketChanges, updateMarketChange, listMarketStores } from "../db";
 import { runAllStoresCycle, runStoreMonitorCycle, applyMarketEnrichment, getMarketConfig } from "../marketIntelService";
+import { researchEtsyKeyword, analyzeEtsyShop } from "../etsyIntel";
 
 // Market Intelligence endpoints per l'agente VPS / cron — stesso modello di researchRoutes.
 //   GET  /api/market/stores          → elenco store monitorati
@@ -81,5 +82,22 @@ export function registerMarketRoutes(app: Express) {
       await updateMarketChange(Number(id), { status: String(status) as "nuovo" | "letto" | "archiviato" });
       res.json({ success: true });
     } catch (e) { console.warn("[market/status]", e); res.status(500).json({ error: "status failed" }); }
+  });
+
+  // Etsy Product Research (via Firecrawl stealth). body: {mode:'keyword',query} | {mode:'shop',url}
+  app.post("/api/market/etsy", async (req: Request, res: Response) => {
+    if (!checkSecret(req, res)) return;
+    try {
+      const { mode, query, url, limit } = req.body ?? {};
+      if (mode === "shop" && url) { res.json({ success: true, mode: "shop", shop: await analyzeEtsyShop(String(url)) }); return; }
+      if ((mode === "keyword" || !mode) && query) {
+        const r = await researchEtsyKeyword(String(query), { limit: limit ? Number(limit) : undefined });
+        res.json({ success: true, mode: "keyword", ...r }); return;
+      }
+      res.status(400).json({ error: "body: {mode:'keyword',query} oppure {mode:'shop',url}" });
+    } catch (e) {
+      const m = e instanceof Error ? e.message : "etsy failed";
+      console.warn("[market/etsy]", m); res.status(500).json({ error: m });
+    }
   });
 }

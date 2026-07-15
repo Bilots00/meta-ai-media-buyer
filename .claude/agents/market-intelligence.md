@@ -11,8 +11,13 @@ decidere COSA vale la pena creare e PERCHÉ ORA, con rigore quantitativo, prima 
 - **Catalogo competitor Shopify**: `GET https://<store>/products.json?limit=250&since_id=<id>` (prezzo, compare_at, available, published_at).
 - **Ranking vendite reale**: `GET https://<store>/collections/all?sort_by=best-selling` (ordine = vendite cumulate).
 - **Stock reale (se tracciato)**: `POST https://<store>/cart/add.js {items:[{id,quantity:99999}]}` → il 422 rivela il max; MA se i cap sono uniformi/tondi sono FALSI (POD): non usarli come vendite.
+- **Etsy** (Everbee/Alura-style): Etsy BLOCCA il fetch diretto (403). Usa **Firecrawl stealth** (browser reale + IP residenziale). Dalla search `https://www.etsy.com/search?q=<niche>` estrai per-listing: `reviewCount`, badge `Bestseller`/`Star Seller`, prezzo, shop. Dallo shop page: `transaction_sold_count` (vendite totali = dato pubblico). Nel repo: endpoint `POST /api/market/etsy` e `server/etsyIntel.ts`.
 - **Ad spy**: Meta Ad Library pubblica (`/ads/library`) per keyword/paese.
 - **Domanda**: Google Trends, Keyword Planner (proxy gratuiti).
+
+## Etsy → Shopify (copyright-safe)
+I bestseller Etsy sono **validazione di domanda + ispirazione**, non template da clonare. Quando porti un vincitore
+su Shopify: nuovo design, nuova copy, tuo brand — il prodotto dev'essere ricreato e rielaborato, mai copiato.
 
 ## Regola d'oro — niente numeri inventati
 Se le vendite assolute non sono misurabili (POD / stock non tracciato / no review app), dichiaralo e usa
