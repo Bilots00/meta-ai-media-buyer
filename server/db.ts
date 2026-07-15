@@ -666,6 +666,47 @@ export async function getWatchlistChannelStats(userId: number) {
 }
 
 // ─── SEO & Research: feed di market intelligence ───────────────────────────────
+// CREATE minimale ultra-compatibile TiDB: solo PK + UNIQUE (per il dedup), nessun
+// ENUM, nessun DEFAULT CURRENT_TIMESTAMP (i timestamp li passiamo espliciti dal codice),
+// nessun indice secondario. Eseguibile a ogni refresh (IF NOT EXISTS = idempotente).
+const RESEARCH_CREATE_SQL = sql`CREATE TABLE IF NOT EXISTS research_items (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  userId INT NOT NULL,
+  source VARCHAR(24) NOT NULL,
+  sourceDetail VARCHAR(191),
+  title TEXT NOT NULL,
+  url TEXT,
+  urlHash VARCHAR(64) NOT NULL,
+  excerpt TEXT,
+  fullText TEXT,
+  brief TEXT,
+  angle TEXT,
+  commentAnalysis TEXT,
+  viralityScore INT NOT NULL DEFAULT 5,
+  targetScore INT,
+  interestScore INT,
+  engagement INT NOT NULL DEFAULT 0,
+  status VARCHAR(16) NOT NULL DEFAULT 'da_leggere',
+  publishedAt TIMESTAMP NULL,
+  enrichedAt TIMESTAMP NULL,
+  fetchedAt TIMESTAMP NULL,
+  createdAt TIMESTAMP NULL,
+  UNIQUE KEY uq_research_item (userId, urlHash)
+) DEFAULT CHARSET=utf8mb4`;
+
+/** Crea la tabella se manca; ritorna l'errore SQL preciso se il CREATE fallisce. */
+export async function ensureResearchTable(): Promise<{ ok: boolean; error?: string }> {
+  const db = await getDb();
+  if (!db) return { ok: false, error: "DB non disponibile (DATABASE_URL)" };
+  try {
+    await db.execute(RESEARCH_CREATE_SQL);
+    return { ok: true };
+  } catch (err) {
+    const cause = (err as { cause?: { sqlMessage?: string; message?: string } })?.cause;
+    return { ok: false, error: cause?.sqlMessage || cause?.message || (err instanceof Error ? err.message.split("\n")[0] : String(err)) };
+  }
+}
+
 export async function insertResearchItemIfNew(data: typeof researchItems.$inferInsert): Promise<boolean> {
   const db = await getDb();
   if (!db) throw new Error("DB not available");

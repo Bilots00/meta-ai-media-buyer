@@ -6,6 +6,7 @@
 import {
   insertResearchItemIfNew, getUnenrichedResearchItems, updateResearchItem,
   getAllUserSettings, upsertUserSetting, insertSocialChatMessage, getResearchItemById,
+  ensureResearchTable,
 } from "./db";
 import {
   fetchAllResearchSources, enrichResearchItems, researchUrlHash, sanitizeText,
@@ -112,6 +113,11 @@ export async function enrichPendingResearch(userId: number, limit = ENRICH_BATCH
 
 /** Refresh completo: fetch fonti → store → arricchimento LLM del top. */
 export async function refreshResearch(userId: number): Promise<{ fetched: number; stored: number; enriched: number; errors: string[]; dbError?: string }> {
+  // Assicura la tabella PRIMA di tutto: se manca (o il CREATE fallisce) è QUESTA la causa
+  const table = await ensureResearchTable();
+  if (!table.ok) {
+    return { fetched: 0, stored: 0, enriched: 0, errors: [`DB: ${table.error}`], dbError: `Creazione tabella fallita: ${table.error}` };
+  }
   const { sources } = await getResearchConfig(userId);
   const { items, errors } = await fetchAllResearchSources(sources);
   const { stored, errors: insertErrors } = await storeResearchItems(userId, items);

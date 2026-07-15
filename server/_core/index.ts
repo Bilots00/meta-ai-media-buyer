@@ -163,6 +163,8 @@ async function runMigrations() {
     console.warn("[Migrate] tabelle watchlist non create:", err);
   }
   try {
+    // DDL minimale ultra-compatibile TiDB (niente ENUM/DEFAULT CURRENT_TIMESTAMP/indici
+    // secondari): la stessa usata da ensureResearchTable() nel percorso di refresh
     await db.execute(sql`CREATE TABLE IF NOT EXISTS research_items (
       id INT AUTO_INCREMENT PRIMARY KEY,
       userId INT NOT NULL,
@@ -180,25 +182,14 @@ async function runMigrations() {
       targetScore INT,
       interestScore INT,
       engagement INT NOT NULL DEFAULT 0,
-      status ENUM('da_leggere','salvato','usato','cestinato') NOT NULL DEFAULT 'da_leggere',
+      status VARCHAR(16) NOT NULL DEFAULT 'da_leggere',
       publishedAt TIMESTAMP NULL,
       enrichedAt TIMESTAMP NULL,
-      fetchedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE KEY uq_research_item (userId, urlHash),
-      INDEX idx_research_user (userId),
-      INDEX idx_research_status (status),
-      INDEX idx_research_published (publishedAt)
-    )`);
+      fetchedAt TIMESTAMP NULL,
+      createdAt TIMESTAMP NULL,
+      UNIQUE KEY uq_research_item (userId, urlHash)
+    ) DEFAULT CHARSET=utf8mb4`);
     console.log("[Migrate] Tabella research_items pronta");
-    // Assicura utf8mb4 (emoji): converte SOLO se la tabella non lo è già (no-op sui boot successivi)
-    const info: any = await db.execute(sql`SELECT CCSA.CHARACTER_SET_NAME AS cs FROM information_schema.\`TABLES\` T JOIN information_schema.COLLATION_CHARACTER_SET_APPLICABILITY CCSA ON CCSA.COLLATION_NAME = T.TABLE_COLLATION WHERE T.TABLE_SCHEMA = DATABASE() AND T.TABLE_NAME = 'research_items'`);
-    const rows = Array.isArray(info) ? (Array.isArray(info[0]) ? info[0] : info) : [];
-    const cs = rows?.[0]?.cs ?? "";
-    if (cs && cs !== "utf8mb4") {
-      await db.execute(sql`ALTER TABLE research_items CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
-      console.log(`[Migrate] research_items convertita da ${cs} a utf8mb4`);
-    }
   } catch (err) {
     console.warn("[Migrate] tabella research_items non creata:", err);
   }
