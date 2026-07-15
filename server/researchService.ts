@@ -5,18 +5,26 @@
  */
 import {
   insertResearchItemIfNew, getUnenrichedResearchItems, updateResearchItem,
-  getAllUserSettings, upsertUserSetting, insertSocialChatMessage, getResearchItemById,
-  ensureResearchTable,
+  getAllUserSettings, upsertUserSetting, getResearchItemById,
+  ensureResearchTable, insertSocialDraft, getResearchItems,
 } from "./db";
+import { invokeLLM } from "./_core/llm";
 import {
   fetchAllResearchSources, enrichResearchItems, researchUrlHash, sanitizeText,
-  viralityFromEngagement, DEFAULT_SOURCES, DEFAULT_BRAND_CONTEXT,
+  viralityFromEngagement, fetchRedditComments, llmContentToString, extractJson,
+  DEFAULT_SOURCES, DEFAULT_BRAND_CONTEXT,
   type ResearchSourcesConfig, type FetchedResearchItem, type ResearchSource,
 } from "./research";
 
 const ENRICH_BATCH = 12; // item arricchiti dall'LLM per refresh (i più virali)
+const COMMENTS_PER_BATCH = 4; // post reddit di cui leggere i commenti a ogni enrich
+// Autopilot: genera contenuti da solo se il pezzo è virale, in target e in linea col founder
+const AUTOPILOT_MIN_VIRALITY = 8;
+const AUTOPILOT_MIN_TARGET = 7;
+const AUTOPILOT_MIN_INTEREST = 7;
+const AUTOPILOT_MAX_PER_REFRESH = 2;
 
-export async function getResearchConfig(userId: number): Promise<{ sources: ResearchSourcesConfig; brandContext: string }> {
+export async function getResearchConfig(userId: number): Promise<{ sources: ResearchSourcesConfig; brandContext: string; autopilot: boolean }> {
   const s = await getAllUserSettings(userId);
   let sources = DEFAULT_SOURCES;
   if (s.seo_research_sources) {
@@ -32,12 +40,13 @@ export async function getResearchConfig(userId: number): Promise<{ sources: Rese
       // JSON corrotto: si riparte dai default
     }
   }
-  return { sources, brandContext: s.seo_brand_context || DEFAULT_BRAND_CONTEXT };
+  return { sources, brandContext: s.seo_brand_context || DEFAULT_BRAND_CONTEXT, autopilot: s.seo_autopilot === "true" };
 }
 
-export async function saveResearchConfig(userId: number, cfg: { sources?: ResearchSourcesConfig; brandContext?: string }): Promise<void> {
+export async function saveResearchConfig(userId: number, cfg: { sources?: ResearchSourcesConfig; brandContext?: string; autopilot?: boolean }): Promise<void> {
   if (cfg.sources) await upsertUserSetting(userId, "seo_research_sources", JSON.stringify(cfg.sources));
   if (cfg.brandContext != null) await upsertUserSetting(userId, "seo_brand_context", cfg.brandContext);
+  if (cfg.autopilot != null) await upsertUserSetting(userId, "seo_autopilot", String(cfg.autopilot));
 }
 
 /** Scrive gli item (dedup su urlHash); resiliente per-item, raccoglie gli errori DB. */
@@ -90,13 +99,26 @@ export async function storeResearchItems(userId: number, items: FetchedResearchI
   return { stored, errors };
 }
 
-/** Arricchisce con l'LLM gli item più virali non ancora valutati. */
-export async function enrichPendingResearch(userId: number, limit = ENRICH_BATCH): Promise<number> {
+/** Arricchisce con l'LLM gli item più virali non ancora valutati (+ commenti Reddit). */
+export async function enrichPendingResearch(userId: number, limit = ENRICH_BATCH): Promise<{ enriched: number; items: Array<{ id: number; targetScore: number; interestScore: number }> }> {
   const { brandContext } = await getResearchConfig(userId);
   const pending = await getUnenrichedResearchItems(userId, limit);
-  if (pending.length === 0) return 0;
+  if (pending.length === 0) return { enriched: 0, items: [] };
+
+  // commenti in evidenza per i primi post Reddit del batch (best effort, con pausa anti-429)
+  const commentsById = new Map<number, string[]>();
+  const redditItems = pending.filter((p) => p.source === "reddit" && p.url).slice(0, COMMENTS_PER_BATCH);
+  for (let i = 0; i < redditItems.length; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 1200));
+    try {
+      commentsById.set(redditItems[i].id, await fetchRedditComments(redditItems[i].url!));
+    } catch {
+      // niente commenti: non è bloccante
+    }
+  }
+
   const results = await enrichResearchItems(
-    pending.map((p) => ({ id: p.id, title: p.title, excerpt: p.excerpt, source: p.source })),
+    pending.map((p) => ({ id: p.id, title: p.title, excerpt: p.excerpt, source: p.source, comments: commentsById.get(p.id) })),
     brandContext
   );
   for (const r of results) {
@@ -105,32 +127,38 @@ export async function enrichPendingResearch(userId: number, limit = ENRICH_BATCH
       interestScore: r.interestScore,
       brief: sanitizeText(r.brief, 2000) ?? null,
       angle: sanitizeText(r.angle, 2000) ?? null,
+      ...(r.commentAnalysis ? { commentAnalysis: sanitizeText(r.commentAnalysis, 2000) ?? null } : {}),
       enrichedAt: new Date(),
     });
   }
-  return results.length;
+  return { enriched: results.length, items: results.map((r) => ({ id: r.id, targetScore: r.targetScore, interestScore: r.interestScore })) };
 }
 
 /** Refresh completo: fetch fonti → store → arricchimento LLM del top. */
-export async function refreshResearch(userId: number): Promise<{ fetched: number; stored: number; enriched: number; errors: string[]; dbError?: string }> {
+export async function refreshResearch(userId: number): Promise<{ fetched: number; stored: number; enriched: number; autoGenerated: number; errors: string[]; dbError?: string }> {
   // Assicura la tabella PRIMA di tutto: se manca (o il CREATE fallisce) è QUESTA la causa
   const table = await ensureResearchTable();
   if (!table.ok) {
-    return { fetched: 0, stored: 0, enriched: 0, errors: [`DB: ${table.error}`], dbError: `Creazione tabella fallita: ${table.error}` };
+    return { fetched: 0, stored: 0, enriched: 0, autoGenerated: 0, errors: [`DB: ${table.error}`], dbError: `Creazione tabella fallita: ${table.error}` };
   }
-  const { sources } = await getResearchConfig(userId);
+  const { sources, autopilot } = await getResearchConfig(userId);
   const { items, errors } = await fetchAllResearchSources(sources);
   const { stored, errors: insertErrors } = await storeResearchItems(userId, items);
   // se il fetch ha portato item ma NON se ne salva nessuno, l'errore DB è la causa vera
   const dbError = stored === 0 && items.length > 0 && insertErrors.length > 0 ? insertErrors[0] : undefined;
   for (const e of insertErrors) errors.push(`DB: ${e}`);
   let enriched = 0;
+  let autoGenerated = 0;
   try {
-    enriched = await enrichPendingResearch(userId);
+    const enrichResult = await enrichPendingResearch(userId);
+    enriched = enrichResult.enriched;
+    if (autopilot && enrichResult.items.length > 0) {
+      autoGenerated = await runAutopilot(userId, enrichResult.items);
+    }
   } catch (err) {
-    errors.push(`LLM enrichment: ${err instanceof Error ? err.message : String(err)}`);
+    errors.push(`AI: ${err instanceof Error ? err.message : String(err)}`);
   }
-  return { fetched: items.length, stored, enriched, errors, dbError };
+  return { fetched: items.length, stored, enriched, autoGenerated, errors, dbError };
 }
 
 /** Ingest dall'agente VPS (Gmail/newsletter/fonti custom). */
@@ -164,33 +192,106 @@ export async function ingestResearchItems(
 }
 
 /**
- * Handoff all'agente SEO/SMM via bridge chat (pattern esistente, draft-first):
- * il contenuto parte dall'ANGLE del brand, mai dalla notizia nuda.
+ * Generazione contenuti SERVER-SIDE (niente dipendenza dall'agente VPS): crea
+ * subito le bozze in social_drafts, verificabili nella pagina Bozze.
+ * Guardrail anti-traffico-freddo: si parte SEMPRE dall'angle del brand.
  */
-export async function requestContentFromResearch(
+export async function generateContentFromResearch(
   userId: number,
   itemId: number,
   formats: Array<"blog" | "x" | "facebook">
-): Promise<{ ok: boolean; messageId?: number; error?: string }> {
+): Promise<{ ok: boolean; draftIds?: number[]; error?: string }> {
   const item = await getResearchItemById(itemId);
   if (!item || item.userId !== userId) return { ok: false, error: "Item non trovato" };
-  const wanted = formats.length ? formats : (["blog", "x", "facebook"] as const);
-  const formatLines: string[] = [];
-  if (wanted.includes("blog")) formatLines.push("- ARTICOLO BLOG per lo store Shopify: SEO-first (keyword principale + secondarie nel titolo/H2), 800-1200 parole, struttura H2/H3, meta description");
-  if (wanted.includes("x")) formatLines.push("- POST X (Twitter): hook forte nella prima riga, max 280 caratteri (o mini-thread se serve)");
-  if (wanted.includes("facebook")) formatLines.push("- POST FACEBOOK: taglio conversazionale, domanda di engagement finale");
-  const text = `[SEO → CONTENUTO] (research_item #${item.id})
+  const { brandContext } = await getResearchConfig(userId);
+  const wanted = formats.length ? formats : ["blog", "x", "facebook"];
+
+  const response = await invokeLLM({
+    messages: [
+      {
+        role: "system",
+        content: `Sei il SEO & Content Specialist di questo brand:
+${brandContext}
+
+REGOLA VINCOLANTE (anti-traffico-freddo): NON commentare la notizia da divulgatore. Usa la notizia solo come aggancio: il contenuto deve partire dalla CHIAVE DI LETTURA del brand, parlare alla buyer persona con il tone of voice del brand e nutrire il posizionamento. Scrivi in italiano.
+
+Genera SOLO i formati richiesti. Rispondi SOLO con JSON valido:
+{
+ "blog": {"title": string (titolo SEO con keyword principale), "metaDescription": string (max 155 char), "keywords": string (keyword separate da virgola), "html": string (articolo 800-1200 parole in HTML: <h2>, <h3>, <p>, <ul>; NO <html>/<head>/<body>)},
+ "x": {"text": string (max 270 caratteri, hook forte nella prima riga, 1-2 hashtag)},
+ "facebook": {"text": string (taglio conversazionale, storytelling breve, domanda di engagement finale, 2-3 hashtag)}
+}
+Ometti i formati non richiesti.`,
+      },
+      {
+        role: "user",
+        content: `Formati richiesti: ${wanted.join(", ")}
+
+NOTIZIA/TREND DI PARTENZA
 Fonte: ${item.source}${item.sourceDetail ? ` · ${item.sourceDetail}` : ""}
 Titolo: ${item.title}
-${item.url ? `URL: ${item.url}` : ""}
 ${item.brief ? `Brief: ${item.brief}` : ""}
-${item.angle ? `Chiave di lettura brand: ${item.angle}` : ""}
+${item.angle ? `CHIAVE DI LETTURA BRAND (da cui partire): ${item.angle}` : ""}
+${item.commentAnalysis ? `Linguaggio della conversazione: ${item.commentAnalysis}` : ""}
+${item.excerpt ? `Estratto: ${item.excerpt.slice(0, 600)}` : ""}`,
+      },
+    ],
+  });
 
-Crea questi contenuti e salvali come BOZZE (POST /api/social/draft, mai pubblicare):
-${formatLines.join("\n")}
+  const content = llmContentToString((response as { content?: unknown }).content);
+  const parsed = extractJson<{
+    blog?: { title?: string; metaDescription?: string; keywords?: string; html?: string };
+    x?: { text?: string };
+    facebook?: { text?: string };
+  }>(content);
+  if (!parsed) return { ok: false, error: `Risposta AI non interpretabile (${content.slice(0, 100)})` };
 
-REGOLE VINCOLANTI (lezione anti-traffico-freddo): NON commentare la notizia da divulgatore. Parti dalla chiave di lettura del brand, aggancia i valori/esperienza DreamBrothers (Brain: viral-playbook, tone of voice, avatar Aurora). Ogni contenuto deve nutrire il posizionamento, non il rumore. Alla fine rispondi in chat con il riepilogo delle bozze create.`;
-  const messageId = await insertSocialChatMessage({ userId, role: "user", text, status: "new", source: "web" });
+  const draftIds: number[] = [];
+  const sourceUrl = item.url ?? null;
+  if (wanted.includes("blog") && parsed.blog?.html) {
+    draftIds.push(await insertSocialDraft({
+      userId, platform: "shopify_blog", format: "blog",
+      title: sanitizeText(parsed.blog.title, 255) ?? item.title.slice(0, 255),
+      caption: sanitizeText(`${parsed.blog.html}\n\n<!-- META DESCRIPTION: ${parsed.blog.metaDescription ?? ""} -->`, 60_000) ?? "",
+      hashtags: sanitizeText(parsed.blog.keywords, 1000) ?? null,
+      sourceUrl, createdBy: "ai", status: "draft", notes: `Da Research Hub #${item.id} — ${item.sourceDetail ?? item.source}`,
+    }));
+  }
+  if (wanted.includes("x") && parsed.x?.text) {
+    draftIds.push(await insertSocialDraft({
+      userId, platform: "x", format: "post",
+      title: sanitizeText(`X: ${item.title}`, 255) ?? null,
+      caption: sanitizeText(parsed.x.text, 2000) ?? "",
+      sourceUrl, createdBy: "ai", status: "draft", notes: `Da Research Hub #${item.id}`,
+    }));
+  }
+  if (wanted.includes("facebook") && parsed.facebook?.text) {
+    draftIds.push(await insertSocialDraft({
+      userId, platform: "facebook", format: "post",
+      title: sanitizeText(`FB: ${item.title}`, 255) ?? null,
+      caption: sanitizeText(parsed.facebook.text, 5000) ?? "",
+      sourceUrl, createdBy: "ai", status: "draft", notes: `Da Research Hub #${item.id}`,
+    }));
+  }
+  if (draftIds.length === 0) return { ok: false, error: "L'AI non ha prodotto nessuno dei formati richiesti" };
   await updateResearchItem(itemId, { status: "usato" });
-  return { ok: true, messageId };
+  return { ok: true, draftIds };
+}
+
+/** Autopilot: genera contenuti dai pezzi appena arricchiti che superano le soglie. */
+async function runAutopilot(userId: number, enrichedItems: Array<{ id: number; targetScore: number; interestScore: number }>): Promise<number> {
+  let generated = 0;
+  for (const e of enrichedItems) {
+    if (generated >= AUTOPILOT_MAX_PER_REFRESH) break;
+    if (e.targetScore < AUTOPILOT_MIN_TARGET || e.interestScore < AUTOPILOT_MIN_INTEREST) continue;
+    const item = await getResearchItemById(e.id);
+    if (!item || item.viralityScore < AUTOPILOT_MIN_VIRALITY || item.status !== "da_leggere") continue;
+    try {
+      const r = await generateContentFromResearch(userId, e.id, ["blog", "x", "facebook"]);
+      if (r.ok) generated++;
+    } catch (err) {
+      console.warn("[research] autopilot generate fallito:", err);
+    }
+  }
+  return generated;
 }

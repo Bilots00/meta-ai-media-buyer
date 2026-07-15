@@ -95,7 +95,7 @@ function stripTags(s: string): string {
     .replace(/&quot;|&#34;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&nbsp;|&#160;/g, " ")
     .replace(/&amp;/g, "&")
     // secondo passaggio per le entità doppio-codificate (&amp;#39; → &#39; → ')
-    .replace(/&quot;|&#34;/g, '"').replace(/&#39;|&apos;/g, "'")
+    .replace(/&quot;|&#34;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&nbsp;|&#160;/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -235,9 +235,11 @@ export async function fetchAllResearchSources(cfg: ResearchSourcesConfig): Promi
     }
   })();
 
+  // trendsGeo accetta più paesi separati da virgola: "IT, US"
+  const geos = cfg.trendsGeo.split(/[,\s]+/).map((g) => g.trim().toUpperCase()).filter(Boolean);
   const otherJobs: Array<{ name: string; run: () => Promise<FetchedResearchItem[]> }> = [
     ...cfg.newsQueries.map((q) => ({ name: `news "${q}"`, run: () => fetchGoogleNews(q) })),
-    { name: `trends ${cfg.trendsGeo}`, run: () => fetchGoogleTrends(cfg.trendsGeo) },
+    ...geos.map((g) => ({ name: `trends ${g}`, run: () => fetchGoogleTrends(g) })),
     ...cfg.substacks.map((p) => ({ name: `substack ${p}`, run: () => fetchSubstack(p) })),
   ];
   const results = await Promise.allSettled(otherJobs.map((j) => j.run()));
@@ -249,6 +251,53 @@ export async function fetchAllResearchSources(cfg: ResearchSourcesConfig): Promi
   return { items, errors };
 }
 
+// ─── LLM helpers ──────────────────────────────────────────────────────────────
+/** Estrae il testo dalla risposta LLM: gestisce stringa, array di parti, oggetti. */
+export function llmContentToString(raw: unknown): string {
+  if (typeof raw === "string") return raw;
+  if (Array.isArray(raw)) {
+    return raw.map((p) => {
+      if (typeof p === "string") return p;
+      const part = p as { text?: string; content?: string };
+      return part?.text ?? part?.content ?? "";
+    }).join("\n");
+  }
+  return JSON.stringify(raw ?? "");
+}
+
+/** Estrae il primo blocco JSON valido dal testo (gestisce ```json fences e testo attorno). */
+export function extractJson<T>(text: string): T | null {
+  const candidates: string[] = [];
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
+  if (fence) candidates.push(fence.trim());
+  const braces = text.match(/\{[\s\S]*\}/)?.[0];
+  if (braces) candidates.push(braces);
+  candidates.push(text);
+  for (const c of candidates) {
+    try {
+      return JSON.parse(c) as T;
+    } catch {
+      // prova il prossimo candidato
+    }
+  }
+  return null;
+}
+
+// ─── Commenti Reddit (feed .rss del post: il primo entry è il post, poi i commenti) ─
+export async function fetchRedditComments(postUrl: string, max = 8): Promise<string[]> {
+  const clean = postUrl.replace(/\/+$/, "");
+  const res = await fetch(`${clean}/.rss`, {
+    headers: { "User-Agent": BROWSER_UA, Accept: "application/atom+xml, application/xml, */*" },
+    signal: AbortSignal.timeout(AXIOS_TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(`Reddit commenti: HTTP ${res.status}`);
+  const entries = parseRssItems(await res.text());
+  // entries[0] = il post stesso; i successivi sono i commenti in evidenza
+  return entries.slice(1, 1 + max)
+    .map((e) => (e.description ?? "").slice(0, 400))
+    .filter((t) => t.length > 10);
+}
+
 // ─── Arricchimento LLM (punteggi target/interesse + brief + chiave di lettura) ─
 export interface EnrichmentResult {
   id: number;
@@ -256,10 +305,11 @@ export interface EnrichmentResult {
   interestScore: number;
   brief: string;
   angle: string;
+  commentAnalysis?: string;
 }
 
 export async function enrichResearchItems(
-  items: Array<{ id: number; title: string; excerpt?: string | null; source: string }>,
+  items: Array<{ id: number; title: string; excerpt?: string | null; source: string; comments?: string[] }>,
   brandContext: string
 ): Promise<EnrichmentResult[]> {
   if (items.length === 0) return [];
@@ -268,6 +318,7 @@ export async function enrichResearchItems(
     fonte: i.source,
     titolo: i.title,
     estratto: (i.excerpt ?? "").slice(0, 400),
+    ...(i.comments?.length ? { commenti: i.comments.slice(0, 8) } : {}),
   }));
   const response = await invokeLLM({
     messages: [
@@ -281,26 +332,25 @@ Per ogni item restituisci:
 - interestScore 0-10: quanto è utile al brand per creare contenuti/prodotti (trend sfruttabile, keyword, conversazione)
 - brief: 1-2 frasi in italiano — cosa è successo / di cosa si parla
 - angle: la CHIAVE DI LETTURA — come il brand può agganciare questa notizia ai propri valori/esperienza per un contenuto EFFICACE (non solo virale). Se la notizia è puro rumore fuori target, dillo chiaramente e suggerisci di ignorarla.
+- commentAnalysis (SOLO se l'item ha "commenti"): 2-3 frasi in italiano — sentiment e temi ricorrenti della conversazione, con il linguaggio esatto usato dalle persone (utile per copy e ads).
 
-Rispondi SOLO con JSON valido: {"items":[{"id":number,"targetScore":number,"interestScore":number,"brief":string,"angle":string}]}`,
+Rispondi SOLO con JSON valido: {"items":[{"id":number,"targetScore":number,"interestScore":number,"brief":string,"angle":string,"commentAnalysis":string|null}]}`,
       },
       { role: "user", content: JSON.stringify(list) },
     ],
   });
-  const raw = (response as { content?: unknown }).content;
-  const content = typeof raw === "string" ? raw : JSON.stringify(raw);
-  try {
-    const jsonStr = content.match(/\{[\s\S]*\}/)?.[0] ?? content;
-    const parsed = JSON.parse(jsonStr) as { items?: EnrichmentResult[] };
-    return (parsed.items ?? []).filter((e) => typeof e.id === "number").map((e) => ({
-      id: e.id,
-      targetScore: Math.max(0, Math.min(10, Math.round(Number(e.targetScore ?? 0)))),
-      interestScore: Math.max(0, Math.min(10, Math.round(Number(e.interestScore ?? 0)))),
-      brief: String(e.brief ?? "").slice(0, 2000),
-      angle: String(e.angle ?? "").slice(0, 2000),
-    }));
-  } catch (err) {
-    console.warn("[research] enrichment JSON parse fallito:", err);
-    return [];
+  const content = llmContentToString((response as { content?: unknown }).content);
+  const parsed = extractJson<{ items?: EnrichmentResult[] }>(content);
+  if (!parsed) {
+    throw new Error(`Risposta AI non interpretabile (primi 120 char: ${content.slice(0, 120)})`);
   }
+  const arr = Array.isArray(parsed) ? (parsed as unknown as EnrichmentResult[]) : (parsed.items ?? []);
+  return arr.filter((e) => typeof e.id === "number").map((e) => ({
+    id: e.id,
+    targetScore: Math.max(0, Math.min(10, Math.round(Number(e.targetScore ?? 0)))),
+    interestScore: Math.max(0, Math.min(10, Math.round(Number(e.interestScore ?? 0)))),
+    brief: String(e.brief ?? "").slice(0, 2000),
+    angle: String(e.angle ?? "").slice(0, 2000),
+    commentAnalysis: e.commentAnalysis ? String(e.commentAnalysis).slice(0, 2000) : undefined,
+  }));
 }

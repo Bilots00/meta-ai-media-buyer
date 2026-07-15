@@ -98,8 +98,8 @@ export function registerResearchRoutes(app: Express) {
   app.post("/api/seo/research/enrich", async (req: Request, res: Response) => {
     if (!checkSecret(req, res)) return;
     try {
-      const enriched = await enrichPendingResearch(OWNER_USER_ID, 15);
-      res.json({ success: true, enriched });
+      const r = await enrichPendingResearch(OWNER_USER_ID, 15);
+      res.json({ success: true, enriched: r.enriched });
     } catch (err) {
       console.warn("[research/enrich] error:", err);
       res.status(500).json({ error: "enrich failed" });

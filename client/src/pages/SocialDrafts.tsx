@@ -1,5 +1,5 @@
 import { useState, type ElementType } from "react";
-import { Instagram, Facebook, MessageSquare, Clock, Pencil, Bot, Inbox, Check, Trash2 } from "lucide-react";
+import { Instagram, Facebook, MessageSquare, Clock, Pencil, Bot, Inbox, Check, Trash2, FileText, Twitter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
@@ -8,6 +8,8 @@ const PLATFORMS: Record<string, { label: string; icon: ElementType; color: strin
   instagram: { label: "Instagram", icon: Instagram, color: "oklch(0.65 0.2 340)" },
   facebook: { label: "Facebook", icon: Facebook, color: "oklch(0.5 0.18 265)" },
   pinterest: { label: "Pinterest", icon: MessageSquare, color: "oklch(0.6 0.22 25)" },
+  shopify_blog: { label: "Blog Shopify", icon: FileText, color: "oklch(0.7 0.15 150)" },
+  x: { label: "X (Twitter)", icon: Twitter, color: "oklch(0.75 0.02 260)" },
 };
 const STATUS_LABEL: Record<string, string> = { draft: "Bozza", scheduled: "Pianificato", published: "Pubblicato", rejected: "Rifiutato" };
 

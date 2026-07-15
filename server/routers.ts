@@ -23,7 +23,7 @@ import {
 } from "./db";
 import { addWatchlistChannel, refreshWatchlistChannel, refreshAllWatchlistChannels } from "./watchlistService";
 import {
-  refreshResearch, enrichPendingResearch, requestContentFromResearch,
+  refreshResearch, enrichPendingResearch, generateContentFromResearch,
   getResearchConfig, saveResearchConfig,
 } from "./researchService";
 import {
@@ -218,8 +218,8 @@ export const appRouter = router({
       }),
 
     enrichPending: protectedProcedure.mutation(async ({ ctx }) => {
-      const enriched = await enrichPendingResearch(ctx.user.id, 15);
-      return { enriched } as const;
+      const r = await enrichPendingResearch(ctx.user.id, 15);
+      return { enriched: r.enriched } as const;
     }),
 
     generateContent: protectedProcedure
@@ -228,7 +228,7 @@ export const appRouter = router({
         formats: z.array(z.enum(["blog", "x", "facebook"])).default(["blog", "x", "facebook"]),
       }))
       .mutation(async ({ ctx, input }) => {
-        return requestContentFromResearch(ctx.user.id, input.id, input.formats);
+        return generateContentFromResearch(ctx.user.id, input.id, input.formats);
       }),
 
     getConfig: protectedProcedure.query(async ({ ctx }) => {
@@ -244,6 +244,7 @@ export const appRouter = router({
           trendsGeo: z.string(),
         }).optional(),
         brandContext: z.string().optional(),
+        autopilot: z.boolean().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         await saveResearchConfig(ctx.user.id, input);
