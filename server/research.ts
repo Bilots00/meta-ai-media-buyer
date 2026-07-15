@@ -85,11 +85,17 @@ export function viralityFromEngagement(engagement: number): number {
 
 // ─── Parser RSS minimale (niente dipendenze nuove) ───────────────────────────
 function stripTags(s: string): string {
+  // ordine: CDATA → decodifica entità (i feed Atom di Reddit arrivano con l'HTML
+  // entity-encoded: &lt;p&gt;) → rimozione tag → &amp; per ultima → spazi
   return s
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/<!--[\s\S]*?-->/g, " ")
     .replace(/<[^>]+>/g, " ")
-    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&nbsp;/g, " ")
+    .replace(/&quot;|&#34;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&nbsp;|&#160;/g, " ")
+    .replace(/&amp;/g, "&")
+    // secondo passaggio per le entità doppio-codificate (&amp;#39; → &#39; → ')
+    .replace(/&quot;|&#34;/g, '"').replace(/&#39;|&apos;/g, "'")
     .replace(/\s+/g, " ")
     .trim();
 }

@@ -50,6 +50,9 @@ export async function storeResearchItems(userId: number, items: FetchedResearchI
     const t = it.publishedAt instanceof Date ? it.publishedAt.getTime() : NaN;
     const publishedAt = Number.isFinite(t) && t > 0 && t < 2_140_000_000_000 ? it.publishedAt! : null;
     try {
+      // TUTTE le colonne esplicite (niente keyword DEFAULT nell'INSERT: TiDB in
+      // produzione può rifiutarla dove MySQL la accetta — unica differenza
+      // strutturale rispetto agli insert watchlist che funzionano)
       const isNew = await insertResearchItemIfNew({
         userId,
         source: it.source,
@@ -59,14 +62,26 @@ export async function storeResearchItems(userId: number, items: FetchedResearchI
         urlHash: researchUrlHash(it.url, it.title),
         excerpt: sanitizeText(it.excerpt, 1500) ?? null,
         fullText: sanitizeText(it.fullText, 60_000) ?? null,
+        brief: null,
+        angle: null,
+        commentAnalysis: null,
         viralityScore: Number.isFinite(it.viralityScore) ? it.viralityScore : 5,
+        targetScore: null,
+        interestScore: null,
         engagement: Number.isFinite(it.engagement) ? it.engagement : 0,
+        status: "da_leggere",
         publishedAt,
+        enrichedAt: null,
+        fetchedAt: new Date(),
+        createdAt: new Date(),
       });
       if (isNew) stored++;
     } catch (err) {
-      // un item malformato non deve far fallire l'intero refresh; dedup del messaggio
-      const m = err instanceof Error ? err.message : String(err);
+      // un item malformato non deve far fallire l'intero refresh.
+      // Drizzle incapsula l'errore MySQL reale in err.cause: è QUELLO il messaggio utile
+      const cause = (err as { cause?: { message?: string; code?: string; sqlMessage?: string } })?.cause;
+      const m = cause?.sqlMessage || cause?.message
+        || (err instanceof Error ? err.message.split("\n")[0].slice(0, 300) : String(err));
       if (!errors.some((e) => e === m)) errors.push(m);
     }
   }
