@@ -39,36 +39,39 @@ export async function saveResearchConfig(userId: number, cfg: { sources?: Resear
   if (cfg.brandContext != null) await upsertUserSetting(userId, "seo_brand_context", cfg.brandContext);
 }
 
-/** Scrive gli item (dedup su urlHash); ritorna quanti sono nuovi. Resiliente per-item. */
-export async function storeResearchItems(userId: number, items: FetchedResearchItem[]): Promise<number> {
+/** Scrive gli item (dedup su urlHash); resiliente per-item, raccoglie gli errori DB. */
+export async function storeResearchItems(userId: number, items: FetchedResearchItem[]): Promise<{ stored: number; errors: string[] }> {
   let stored = 0;
-  const failed: string[] = [];
+  const errors: string[] = [];
   for (const it of items) {
     const title = sanitizeText(it.title, 500);
     if (!title) continue;
+    // TIMESTAMP MySQL accetta solo date valide nel range 1970-2038
+    const t = it.publishedAt instanceof Date ? it.publishedAt.getTime() : NaN;
+    const publishedAt = Number.isFinite(t) && t > 0 && t < 2_140_000_000_000 ? it.publishedAt! : null;
     try {
-      // dedup sul titolo originale (deterministico tra i refresh)
       const isNew = await insertResearchItemIfNew({
         userId,
         source: it.source,
         sourceDetail: sanitizeText(it.sourceDetail, 191) ?? null,
         title,
-        url: it.url ?? null,
+        url: it.url ? sanitizeText(it.url, 2000) : null,
         urlHash: researchUrlHash(it.url, it.title),
         excerpt: sanitizeText(it.excerpt, 1500) ?? null,
         fullText: sanitizeText(it.fullText, 60_000) ?? null,
-        viralityScore: it.viralityScore,
-        engagement: it.engagement,
-        publishedAt: it.publishedAt ?? null,
+        viralityScore: Number.isFinite(it.viralityScore) ? it.viralityScore : 5,
+        engagement: Number.isFinite(it.engagement) ? it.engagement : 0,
+        publishedAt,
       });
       if (isNew) stored++;
     } catch (err) {
-      // un item malformato non deve mai far fallire l'intero refresh
-      failed.push(`${it.source}/${it.sourceDetail ?? ""}: ${err instanceof Error ? err.message : String(err)}`);
+      // un item malformato non deve far fallire l'intero refresh; dedup del messaggio
+      const m = err instanceof Error ? err.message : String(err);
+      if (!errors.some((e) => e === m)) errors.push(m);
     }
   }
-  if (failed.length) console.warn(`[research] ${failed.length} item non salvati (saltati):`, failed.slice(0, 3));
-  return stored;
+  if (errors.length) console.warn(`[research] errori insert (${errors.length} distinti):`, errors.slice(0, 3));
+  return { stored, errors };
 }
 
 /** Arricchisce con l'LLM gli item più virali non ancora valutati. */
@@ -93,17 +96,20 @@ export async function enrichPendingResearch(userId: number, limit = ENRICH_BATCH
 }
 
 /** Refresh completo: fetch fonti → store → arricchimento LLM del top. */
-export async function refreshResearch(userId: number): Promise<{ fetched: number; stored: number; enriched: number; errors: string[] }> {
+export async function refreshResearch(userId: number): Promise<{ fetched: number; stored: number; enriched: number; errors: string[]; dbError?: string }> {
   const { sources } = await getResearchConfig(userId);
   const { items, errors } = await fetchAllResearchSources(sources);
-  const stored = await storeResearchItems(userId, items);
+  const { stored, errors: insertErrors } = await storeResearchItems(userId, items);
+  // se il fetch ha portato item ma NON se ne salva nessuno, l'errore DB è la causa vera
+  const dbError = stored === 0 && items.length > 0 && insertErrors.length > 0 ? insertErrors[0] : undefined;
+  for (const e of insertErrors) errors.push(`DB: ${e}`);
   let enriched = 0;
   try {
     enriched = await enrichPendingResearch(userId);
   } catch (err) {
     errors.push(`LLM enrichment: ${err instanceof Error ? err.message : String(err)}`);
   }
-  return { fetched: items.length, stored, enriched, errors };
+  return { fetched: items.length, stored, enriched, errors, dbError };
 }
 
 /** Ingest dall'agente VPS (Gmail/newsletter/fonti custom). */
@@ -132,7 +138,8 @@ export async function ingestResearchItems(
         publishedAt: i.publishedAt ? new Date(i.publishedAt) : undefined,
       };
     });
-  return storeResearchItems(userId, valid);
+  const { stored } = await storeResearchItems(userId, valid);
+  return stored;
 }
 
 /**

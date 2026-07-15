@@ -69,6 +69,12 @@ export default function SeoResearch() {
   const refresh = trpc.research.refresh.useMutation({
     onSuccess: (r) => {
       invalidate();
+      if (r.dbError) {
+        // il fetch ha portato notizie ma il DB le rifiuta tutte: mostra l'errore vero
+        toast.error(`Salvataggio DB fallito su tutti i ${r.fetched} item`, { description: r.dbError, duration: 15000 });
+        console.error("[research] errore DB:", r.dbError);
+        return;
+      }
       const errs = r.errors.length ? ` · ${r.errors.length} fonti in errore` : "";
       toast.success(`${r.stored} nuovi item (${r.fetched} letti, ${r.enriched} analizzati dall'AI)${errs}`);
       if (r.errors.length) console.warn("[research] errori fonti:", r.errors);
