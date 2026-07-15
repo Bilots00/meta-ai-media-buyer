@@ -62,7 +62,7 @@ export async function storeResearchItems(userId: number, items: FetchedResearchI
         url: it.url ? sanitizeText(it.url, 2000) : null,
         urlHash: researchUrlHash(it.url, it.title),
         excerpt: sanitizeText(it.excerpt, 1500) ?? null,
-        fullText: sanitizeText(it.fullText, 60_000) ?? null,
+        bodyText: sanitizeText(it.fullText, 60_000) ?? null,
         brief: null,
         angle: null,
         commentAnalysis: null,

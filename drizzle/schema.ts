@@ -450,7 +450,7 @@ export const researchItems = mysqlTable("research_items", {
   // sha256(url|title) per dedup: le url delle news sono troppo lunghe per una chiave
   urlHash: varchar("urlHash", { length: 64 }).notNull(),
   excerpt: text("excerpt"),
-  fullText: text("fullText"),
+  bodyText: text("bodyText"), // testo integrale (NON "fullText": FULLTEXT è parola riservata MySQL/TiDB)
   brief: text("brief"), // LLM: cosa è successo
   angle: text("angle"), // LLM: chiave di lettura col sistema di credenze del brand
   commentAnalysis: text("commentAnalysis"), // analisi conversazione (agente/LLM)

@@ -678,7 +678,7 @@ const RESEARCH_CREATE_SQL = sql`CREATE TABLE IF NOT EXISTS research_items (
   url TEXT,
   urlHash VARCHAR(64) NOT NULL,
   excerpt TEXT,
-  fullText TEXT,
+  bodyText TEXT,
   brief TEXT,
   angle TEXT,
   commentAnalysis TEXT,
