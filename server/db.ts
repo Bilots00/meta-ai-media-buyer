@@ -1,6 +1,6 @@
 import { eq, desc, and, or, isNull, gte, lte, sql, notInArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, metaAccounts, campaigns, adSets, ads, kpiSnapshots, goals, agentLogs, abTests, alerts, copyGenerations, trackingConfigs, userSettings, csConversations, csMessages, socialDrafts, socialChatMessages, watchlistChannels, watchlistVideos, researchItems, marketStores, marketProducts, marketSnapshots, marketChanges, etsyShops, etsyShopSnapshots, etsyListings } from "../drizzle/schema";
+import { InsertUser, users, metaAccounts, campaigns, adSets, ads, kpiSnapshots, goals, agentLogs, abTests, alerts, copyGenerations, trackingConfigs, userSettings, csConversations, csMessages, socialDrafts, socialChatMessages, watchlistChannels, watchlistVideos, researchItems, marketStores, marketProducts, marketSnapshots, marketChanges, etsyShops, etsyShopSnapshots, etsyListings, mcAgents, mcActivity, mcCampaignState, metaChatMessages } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -945,4 +945,79 @@ export async function getEtsyListingsByShop(shopId: number) {
 export async function getTopEtsyListings(userId: number, limit = 50) {
   const db = await getDb(); if (!db) return [];
   return db.select().from(etsyListings).where(eq(etsyListings.userId, userId)).orderBy(desc(etsyListings.estSales)).limit(Math.min(limit, 300));
+}
+
+// ─── Mission Control: agenti, activity, stato campagne ────────────────────────
+export async function upsertMcAgent(data: typeof mcAgents.$inferInsert) {
+  const db = await getDb(); if (!db) return;
+  await db.insert(mcAgents).values(data).onDuplicateKeyUpdate({ set: { name: data.name, role: data.role, department: data.department, isLiaison: data.isLiaison, colorHue: data.colorHue } });
+}
+export async function getMcAgents(userId: number) {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(mcAgents).where(eq(mcAgents.userId, userId)).orderBy(mcAgents.id);
+}
+export async function updateMcAgentStatus(userId: number, code: string, status: "idle" | "working") {
+  const db = await getDb(); if (!db) return;
+  await db.update(mcAgents).set({ status, lastActiveAt: new Date() }).where(and(eq(mcAgents.userId, userId), eq(mcAgents.code, code)));
+}
+export async function setAllMcAgentsIdle(userId: number) {
+  const db = await getDb(); if (!db) return;
+  await db.update(mcAgents).set({ status: "idle" }).where(eq(mcAgents.userId, userId));
+}
+export async function insertMcActivity(data: typeof mcActivity.$inferInsert): Promise<number> {
+  const db = await getDb(); if (!db) throw new Error("DB not available");
+  const r = await db.insert(mcActivity).values(data);
+  return Number((r as unknown as { insertId: number }[])[0].insertId);
+}
+export async function getMcActivity(userId: number, opts: { agentCode?: string; campaignId?: number; limit?: number } = {}) {
+  const db = await getDb(); if (!db) return [];
+  const conds = [eq(mcActivity.userId, userId)];
+  if (opts.agentCode) conds.push(eq(mcActivity.agentCode, opts.agentCode));
+  if (opts.campaignId != null) conds.push(eq(mcActivity.campaignId, opts.campaignId));
+  return db.select().from(mcActivity).where(and(...conds)).orderBy(desc(mcActivity.createdAt)).limit(Math.min(opts.limit ?? 50, 300));
+}
+export async function countMcActivityToday(userId: number): Promise<number> {
+  const db = await getDb(); if (!db) return 0;
+  const start = new Date(); start.setHours(0, 0, 0, 0);
+  const rows = await db.select({ n: sql<number>`count(*)` }).from(mcActivity)
+    .where(and(eq(mcActivity.userId, userId), gte(mcActivity.createdAt, start)));
+  return Number(rows[0]?.n ?? 0);
+}
+export async function getMcCampaignStates(userId: number) {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(mcCampaignState).where(eq(mcCampaignState.userId, userId));
+}
+export async function upsertMcCampaignState(data: typeof mcCampaignState.$inferInsert) {
+  const db = await getDb(); if (!db) return;
+  await db.insert(mcCampaignState).values(data).onDuplicateKeyUpdate({
+    set: {
+      managed: data.managed ?? true,
+      ...(data.assignedAgentCode ? { assignedAgentCode: data.assignedAgentCode } : {}),
+      ...(data.mcStatus ? { mcStatus: data.mcStatus } : {}),
+    },
+  });
+}
+export async function updateMcCampaignState(campaignId: number, patch: Partial<typeof mcCampaignState.$inferInsert>) {
+  const db = await getDb(); if (!db) return;
+  await db.update(mcCampaignState).set(patch).where(eq(mcCampaignState.campaignId, campaignId));
+}
+
+// ─── AI Manager: chat con l'orchestrator (Polaris) ────────────────────────────
+export async function insertMetaChatMessage(data: typeof metaChatMessages.$inferInsert): Promise<number> {
+  const db = await getDb(); if (!db) throw new Error("DB not available");
+  const r = await db.insert(metaChatMessages).values(data);
+  return Number((r as unknown as { insertId: number }[])[0].insertId);
+}
+export async function getMetaChatMessages(userId: number, limit = 100) {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(metaChatMessages).where(eq(metaChatMessages.userId, userId)).orderBy(desc(metaChatMessages.createdAt)).limit(limit);
+}
+export async function getMetaChatMessageById(id: number) {
+  const db = await getDb(); if (!db) return undefined;
+  const rows = await db.select().from(metaChatMessages).where(eq(metaChatMessages.id, id)).limit(1);
+  return rows[0];
+}
+export async function updateMetaChatMessage(id: number, patch: Partial<typeof metaChatMessages.$inferInsert>) {
+  const db = await getDb(); if (!db) return;
+  await db.update(metaChatMessages).set(patch).where(eq(metaChatMessages.id, id));
 }

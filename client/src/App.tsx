@@ -8,6 +8,8 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import DashboardLayout from "./components/DashboardLayout";
 import Dashboard from "./pages/Dashboard";
+import MetaAiManager from "./pages/MetaAiManager";
+import MissionControl from "./pages/MissionControl";
 import Campaigns from "./pages/Campaigns";
 import AuditAI from "./pages/AuditAI";
 import CopyGenerator from "./pages/CopyGenerator";
@@ -47,6 +49,8 @@ function AppRouter() {
 
       {/* META ADS */}
       <Route path="/dashboard">{withLayout(Dashboard)}</Route>
+      <Route path="/ai-manager">{withLayout(MetaAiManager)}</Route>
+      <Route path="/mission-control">{withLayout(MissionControl)}</Route>
       <Route path="/campaigns">{withLayout(Campaigns)}</Route>
       <Route path="/audit">{withLayout(AuditAI)}</Route>
       <Route path="/copy">{withLayout(CopyGenerator)}</Route>
