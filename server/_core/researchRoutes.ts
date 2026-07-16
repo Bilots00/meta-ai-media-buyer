@@ -41,6 +41,7 @@ export function registerResearchRoutes(app: Express) {
       const items = await getResearchItems(OWNER_USER_ID, {
         source: q.source ? String(q.source) : undefined,
         status: q.status ? String(q.status) : undefined,
+        country: q.country ? String(q.country) : undefined,
         hours: num(q.hours, 48),
         minVirality: num(q.min_virality, 0),
         minTarget: num(q.min_target, 0),
@@ -55,6 +56,7 @@ export function registerResearchRoutes(app: Express) {
           id: i.id,
           source: i.source,
           source_detail: i.sourceDetail,
+          country: i.country,
           title: i.title,
           url: i.url,
           excerpt: i.excerpt,

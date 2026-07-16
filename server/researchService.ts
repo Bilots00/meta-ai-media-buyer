@@ -80,6 +80,7 @@ export async function storeResearchItems(userId: number, items: FetchedResearchI
         interestScore: null,
         engagement: Number.isFinite(it.engagement) ? it.engagement : 0,
         status: "da_leggere",
+        country: (it.country && /^[A-Za-z]{2,8}$/.test(it.country) ? it.country.toUpperCase() : "GLOBAL"),
         publishedAt,
         enrichedAt: null,
         fetchedAt: new Date(),
@@ -181,7 +182,7 @@ export async function refreshResearch(userId: number): Promise<{ fetched: number
 export async function ingestResearchItems(
   userId: number,
   items: Array<{
-    source?: string; sourceDetail?: string; title?: string; url?: string;
+    source?: string; sourceDetail?: string; country?: string; title?: string; url?: string;
     excerpt?: string; fullText?: string; engagement?: number; publishedAt?: string | Date;
   }>
 ): Promise<number> {
@@ -194,6 +195,7 @@ export async function ingestResearchItems(
       return {
         source,
         sourceDetail: i.sourceDetail,
+        country: i.country,
         title: String(i.title).slice(0, 500),
         url: i.url,
         excerpt: i.excerpt?.slice(0, 1500),

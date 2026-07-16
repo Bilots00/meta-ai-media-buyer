@@ -44,6 +44,15 @@ const fmtDate = (d: string | Date | null | undefined) =>
   d ? new Date(d).toLocaleDateString("it-IT", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
 const nf = new Intl.NumberFormat("it-IT", { notation: "compact", maximumFractionDigits: 1 });
 
+// ISO-2 → emoji bandiera (GLOBAL = 🌐)
+function countryFlag(cc: string): string {
+  if (!cc || cc === "GLOBAL") return "🌐";
+  const base = cc.trim().toUpperCase().slice(0, 2);
+  if (!/^[A-Z]{2}$/.test(base)) return "🌐";
+  return String.fromCodePoint(0x1f1e6 + base.charCodeAt(0) - 65, 0x1f1e6 + base.charCodeAt(1) - 65);
+}
+const countryLabel = (cc: string) => (cc === "GLOBAL" ? "🌐 Globale" : `${countryFlag(cc)} ${cc}`);
+
 export default function SeoResearch() {
   const utils = trpc.useUtils();
 
@@ -51,6 +60,7 @@ export default function SeoResearch() {
   const [source, setSource] = useState("all");
   const [status, setStatus] = useState("all");
   const [minVirality, setMinVirality] = useState("0");
+  const [country, setCountry] = useState("all");
   const [sort, setSort] = useState<"best" | "virality" | "target" | "interest" | "engagement" | "recent">("best");
   const [search, setSearch] = useState("");
   const [openId, setOpenId] = useState<number | null>(null);
@@ -61,14 +71,16 @@ export default function SeoResearch() {
     source: source !== "all" ? source : undefined,
     status: status !== "all" ? (status as "da_leggere" | "salvato" | "usato" | "cestinato") : undefined,
     minVirality: Number(minVirality),
+    country: country !== "all" ? country : undefined,
     search: search.trim() || undefined,
     limit: 150,
     sort,
   };
   const items = trpc.research.list.useQuery(listInput, { refetchInterval: 120000 });
+  const countries = trpc.research.countries.useQuery(undefined, { refetchInterval: 120000 });
   const config = trpc.research.getConfig.useQuery(undefined, { enabled: showConfig });
 
-  const invalidate = () => utils.research.list.invalidate();
+  const invalidate = () => { utils.research.list.invalidate(); utils.research.countries.invalidate(); };
 
   const refresh = trpc.research.refresh.useMutation({
     onSuccess: (r) => {
@@ -180,6 +192,13 @@ export default function SeoResearch() {
             {Object.entries(SOURCE_META).map(([k, v]) => <SelectItem key={k} value={k}>{v.label}</SelectItem>)}
           </SelectContent>
         </Select>
+        <Select value={country} onValueChange={setCountry}>
+          <SelectTrigger className="w-[130px] h-8 text-xs"><SelectValue placeholder="Paese" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">🌍 Tutti i paesi</SelectItem>
+            {(countries.data ?? []).map((cc) => <SelectItem key={cc} value={cc}>{countryLabel(cc)}</SelectItem>)}
+          </SelectContent>
+        </Select>
         <Select value={status} onValueChange={setStatus}>
           <SelectTrigger className="w-[130px] h-8 text-xs"><SelectValue placeholder="Stato" /></SelectTrigger>
           <SelectContent>
@@ -229,7 +248,10 @@ export default function SeoResearch() {
                 <Icon className="w-3.5 h-3.5" style={{ color: sm.color }} />
               </span>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{i.title}</p>
+                <p className="text-sm font-medium truncate">
+                  {i.country && i.country !== "GLOBAL" && <span className="mr-1" title={i.country}>{countryFlag(i.country)}</span>}
+                  {i.title}
+                </p>
                 <p className="text-xs truncate">
                   <span className="font-semibold" style={{ color: sm.color }}>{sm.label}</span>
                   {i.sourceDetail && <span className="text-muted-foreground"> · {i.sourceDetail}</span>}

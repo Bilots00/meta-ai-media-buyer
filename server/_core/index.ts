@@ -192,6 +192,18 @@ async function runMigrations() {
       UNIQUE KEY uq_research_item (userId, urlHash)
     ) DEFAULT CHARSET=utf8mb4`);
     console.log("[Migrate] Tabella research_items pronta");
+    // Migrazione additiva idempotente: colonna `country` + backfill dai dati esistenti
+    const colRes: any = await db.execute(sql`SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'research_items' AND COLUMN_NAME = 'country'`);
+    const colRows = Array.isArray(colRes) ? (Array.isArray(colRes[0]) ? colRes[0] : colRes) : [];
+    if (!colRows || colRows.length === 0) {
+      await db.execute(sql`ALTER TABLE research_items ADD COLUMN country VARCHAR(8) NOT NULL DEFAULT 'GLOBAL'`);
+      // backfill: estrai il paese ISO-2 dal sourceDetail ("... IT" / "... US") delle righe geolocalizzate
+      await db.execute(sql`UPDATE research_items SET country = UPPER(RIGHT(sourceDetail, 2))
+        WHERE (source = 'trends' OR source = 'pinterest') AND sourceDetail REGEXP ' [A-Za-z]{2}$'`);
+      // le news italiane storiche erano hardcoded su IT
+      await db.execute(sql`UPDATE research_items SET country = 'IT' WHERE source = 'news' AND country = 'GLOBAL'`);
+      console.log("[Migrate] research_items.country aggiunta + backfill eseguito");
+    }
   } catch (err) {
     console.warn("[Migrate] tabella research_items non creata:", err);
   }

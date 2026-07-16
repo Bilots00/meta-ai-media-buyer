@@ -19,7 +19,7 @@ import {
   getCsConversationsForUser, getCsMessagesForConversation, recordCsReply, updateCsConversation, getCsConversationById,
   getSocialChatMessages, insertSocialChatMessage, getSocialDraftsForUser, updateSocialDraft, deleteSocialDraft,
   getWatchlistChannels, deleteWatchlistChannel, getWatchlistVideos, getWatchlistChannelStats, getWatchlistChannelById,
-  getResearchItems, getResearchItemById, updateResearchItem,
+  getResearchItems, getResearchItemById, updateResearchItem, getResearchCountries,
 } from "./db";
 import { addWatchlistChannel, refreshWatchlistChannel, refreshAllWatchlistChannels } from "./watchlistService";
 import {
@@ -253,12 +253,17 @@ export const appRouter = router({
         minVirality: z.number().min(0).max(10).default(0),
         minTarget: z.number().min(0).max(10).default(0),
         search: z.string().optional(),
+        country: z.string().optional(),
         limit: z.number().min(1).max(300).default(100),
         sort: z.enum(["best", "virality", "target", "interest", "engagement", "recent"]).default("best"),
       }))
       .query(async ({ ctx, input }) => {
         return getResearchItems(ctx.user.id, input);
       }),
+
+    countries: protectedProcedure.query(async ({ ctx }) => {
+      return getResearchCountries(ctx.user.id);
+    }),
 
     refresh: protectedProcedure.mutation(async ({ ctx }) => {
       return refreshResearch(ctx.user.id);

@@ -687,6 +687,7 @@ const RESEARCH_CREATE_SQL = sql`CREATE TABLE IF NOT EXISTS research_items (
   interestScore INT,
   engagement INT NOT NULL DEFAULT 0,
   status VARCHAR(16) NOT NULL DEFAULT 'da_leggere',
+  country VARCHAR(8) NOT NULL DEFAULT 'GLOBAL',
   publishedAt TIMESTAMP NULL,
   enrichedAt TIMESTAMP NULL,
   fetchedAt TIMESTAMP NULL,
@@ -724,6 +725,7 @@ export async function insertResearchItemIfNew(data: typeof researchItems.$inferI
 export interface ResearchFilters {
   source?: string;
   status?: string;
+  country?: string; // ISO-2; "GLOBAL" = solo senza-geo; omesso = tutti
   hours?: number; // 0 = tutti
   minVirality?: number;
   minTarget?: number;
@@ -738,6 +740,7 @@ export async function getResearchItems(userId: number, f: ResearchFilters = {}) 
   if (!db) return [];
   const conds = [eq(researchItems.userId, userId)];
   if (f.source) conds.push(eq(researchItems.source, f.source));
+  if (f.country) conds.push(eq(researchItems.country, f.country.toUpperCase()));
   if (f.status) conds.push(eq(researchItems.status, f.status as "da_leggere" | "salvato" | "usato" | "cestinato"));
   else conds.push(sql`${researchItems.status} != 'cestinato'`);
   if (f.hours && f.hours > 0) {
@@ -761,6 +764,16 @@ export async function getResearchItems(userId: number, f: ResearchFilters = {}) 
     .where(and(...conds))
     .orderBy(...orderBy, desc(researchItems.publishedAt))
     .limit(Math.min(f.limit ?? 100, 300));
+}
+
+/** Paesi distinti presenti nel feed dell'utente (per il dropdown filtro). */
+export async function getResearchCountries(userId: number): Promise<string[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.selectDistinct({ country: researchItems.country })
+    .from(researchItems)
+    .where(and(eq(researchItems.userId, userId), sql`${researchItems.status} != 'cestinato'`));
+  return rows.map((r) => r.country).filter(Boolean).sort();
 }
 
 export async function getResearchItemById(id: number) {

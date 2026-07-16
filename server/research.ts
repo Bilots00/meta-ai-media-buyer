@@ -24,6 +24,7 @@ export type ResearchSource = "reddit" | "news" | "trends" | "substack" | "pinter
 export interface FetchedResearchItem {
   source: ResearchSource;
   sourceDetail?: string;
+  country?: string; // ISO-2 (IT, US...) o "GLOBAL"
   title: string;
   url?: string;
   excerpt?: string;
@@ -222,12 +223,22 @@ export async function fetchReddit(subreddit: string, limit = 20): Promise<Fetche
   }));
 }
 
-export async function fetchGoogleNews(query: string, lang = "it", country = "IT"): Promise<FetchedResearchItem[]> {
-  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=${lang}&gl=${country}&ceid=${country}:${lang}`;
+// lingua di default per ogni paese Google News (ISO-2 → hl)
+const COUNTRY_LANG: Record<string, string> = {
+  IT: "it", US: "en-US", GB: "en-GB", DE: "de", FR: "fr", ES: "es",
+  PT: "pt-PT", BR: "pt-BR", NL: "nl", AT: "de", CH: "de", IE: "en-IE",
+  CA: "en-CA", AU: "en-AU", MX: "es-419",
+};
+
+export async function fetchGoogleNews(query: string, country = "IT"): Promise<FetchedResearchItem[]> {
+  const geo = country.toUpperCase();
+  const lang = COUNTRY_LANG[geo] ?? "en";
+  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=${lang}&gl=${geo}&ceid=${geo}:${lang}`;
   const xml = await httpGetText(url);
   return parseRssItems(xml).slice(0, 15).map((i, idx) => ({
     source: "news" as const,
     sourceDetail: query,
+    country: geo,
     title: i.title.slice(0, 500),
     url: i.link,
     excerpt: i.description?.slice(0, 1500),
@@ -239,7 +250,8 @@ export async function fetchGoogleNews(query: string, lang = "it", country = "IT"
 }
 
 export async function fetchGoogleTrends(geo = "IT"): Promise<FetchedResearchItem[]> {
-  const url = `https://trends.google.com/trending/rss?geo=${encodeURIComponent(geo)}`;
+  const country = geo.toUpperCase();
+  const url = `https://trends.google.com/trending/rss?geo=${encodeURIComponent(country)}`;
   const xml = await httpGetText(url);
   return parseRssItems(xml).slice(0, 20).map((i) => {
     // ht:approx_traffic tipo "50.000+" → numero
@@ -247,7 +259,8 @@ export async function fetchGoogleTrends(geo = "IT"): Promise<FetchedResearchItem
     const newsTitle = i.extras.news_item_title;
     return {
       source: "trends" as const,
-      sourceDetail: `Google Trends ${geo}`,
+      sourceDetail: `Google Trends ${country}`,
+      country,
       title: i.title.slice(0, 500),
       url: i.extras.news_item_url || i.link,
       excerpt: newsTitle ? `Notizia collegata: ${newsTitle}`.slice(0, 1500) : i.description?.slice(0, 1500),
@@ -284,6 +297,7 @@ export async function fetchPinterestTrends(country: string, interestIds: string[
     return {
       source: "pinterest" as const,
       sourceDetail: `Pinterest Trends ${country}`,
+      country: country.toUpperCase(),
       title: i.term!,
       url: i.pinterestTrendsUrl ?? `https://trends.pinterest.com/detail/?terms=${encodeURIComponent(i.term!)}&country=${country}`,
       excerpt: parts.join(" · "),
@@ -331,8 +345,10 @@ export async function fetchAllResearchSources(cfg: ResearchSourcesConfig): Promi
 
   // trendsGeo accetta più paesi separati da virgola: "IT, US"
   const geos = cfg.trendsGeo.split(/[,\s]+/).map((g) => g.trim().toUpperCase()).filter(Boolean);
+  const newsGeos = geos.length ? geos : ["IT"];
   const otherJobs: Array<{ name: string; run: () => Promise<FetchedResearchItem[]> }> = [
-    ...cfg.newsQueries.map((q) => ({ name: `news "${q}"`, run: () => fetchGoogleNews(q) })),
+    // le news vengono raccolte per OGNI paese configurato (con lingua locale)
+    ...newsGeos.flatMap((g) => cfg.newsQueries.map((q) => ({ name: `news ${g} "${q}"`, run: () => fetchGoogleNews(q, g) }))),
     ...geos.map((g) => ({ name: `trends ${g}`, run: () => fetchGoogleTrends(g) })),
     // Pinterest Trends (Apify): keyword ad alto volume per gli articoli SEO
     ...(hasApifyToken()

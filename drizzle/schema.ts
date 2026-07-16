@@ -443,8 +443,10 @@ export type WatchlistVideo = typeof watchlistVideos.$inferSelect;
 export const researchItems = mysqlTable("research_items", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
-  source: varchar("source", { length: 24 }).notNull(), // reddit | news | trends | substack | gmail | manual
+  source: varchar("source", { length: 24 }).notNull(), // reddit | news | trends | substack | pinterest | gmail | manual
   sourceDetail: varchar("sourceDetail", { length: 191 }), // r/sub, nome feed, query
+  // paese ISO-2 della notizia (IT, US, DE...) o "GLOBAL" per fonti senza geo (reddit/substack in inglese)
+  country: varchar("country", { length: 8 }).default("GLOBAL").notNull(),
   title: text("title").notNull(),
   url: text("url"),
   // sha256(url|title) per dedup: le url delle news sono troppo lunghe per una chiave
