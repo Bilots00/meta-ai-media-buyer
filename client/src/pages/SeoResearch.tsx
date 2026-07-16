@@ -263,11 +263,12 @@ export default function SeoResearch() {
                 <ScoreChip label="vir" value={i.viralityScore} />
                 <ScoreChip label="targ" value={i.targetScore} />
                 <ScoreChip label="int" value={i.interestScore} />
-                <span className="inline-flex flex-col items-center rounded-lg px-2 py-1" style={{ background: "oklch(0.2 0.02 260)", minWidth: 48 }}>
+                <span className="inline-flex flex-col items-center rounded-lg px-2 py-1" style={{ background: "oklch(0.2 0.02 260)", minWidth: 48 }}
+                  title={i.source === "pinterest" ? "Indice Pinterest 0-100 (volume normalizzato sul picco, come Google Trends index) — Pinterest non espone i volumi assoluti" : undefined}>
                   <span className="text-sm font-bold leading-none" style={{ color: i.engagement > 0 ? "oklch(0.75 0.15 265)" : "oklch(0.55 0.02 260)" }}>
-                    {i.engagement > 0 ? nf.format(i.engagement) : "—"}
+                    {i.engagement > 0 ? (i.source === "pinterest" ? `${i.engagement}/100` : nf.format(i.engagement)) : "—"}
                   </span>
-                  <span className="text-[9px] uppercase tracking-wider mt-0.5" style={{ color: "oklch(0.55 0.02 260)" }}>eng</span>
+                  <span className="text-[9px] uppercase tracking-wider mt-0.5" style={{ color: "oklch(0.55 0.02 260)" }}>{i.source === "pinterest" ? "idx" : "eng"}</span>
                 </span>
               </div>
               <div className="flex gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>

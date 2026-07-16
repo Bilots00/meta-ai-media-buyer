@@ -55,6 +55,26 @@ come **bozze** (`POST /api/social/draft`, mai pubblicare):
 - **Post Facebook**: conversazionale, domanda finale di engagement; `platform:"facebook"`, `format:"post"`.
 Poi rispondi in chat col riepilogo delle bozze create.
 
+## Task 5 — Pinterest niche digest (settimanale, lunedì) → Brain → SMM + Creative Director
+
+Obiettivo: keyword e trend Pinterest IN NICCHIA per pin virali SEO-first, condivisi
+coi 3 agenti via dreambrothers-brain.
+
+1. `GET /api/seo/research/items?source=pinterest&hours=168&min_target=6&limit=30`
+   (i trend arrivano dall'actor Apify filtrato sugli interessi configurati in Fonti).
+2. Leggi ANCHE la pagina pubblica Pinterest Predicts (annuale):
+   `curl -s https://business.pinterest.com/it/pinterest-predicts/` — estrai i temi
+   rilevanti per DreamBrothers (estetiche casa, regali, citazioni, femminile).
+   ⚠️ `trends.pinterest.com/shopping` e `/search` richiedono login: NON scraparle;
+   gli stessi dati filtrati per interesse arrivano già dall'actor via `interestIds`.
+3. Aggiorna la nota Brain `areas/marketing/social-media/pinterest-keywords-digest.md`
+   (MCP dreambrothers-brain, `brain_write`): tabella keyword in nicchia (indice /100,
+   crescita, "perché è nostra"), sezione Predicts, data aggiornamento.
+   NOTA: l'indice Pinterest è normalizzato 0-100 sul picco (NON volumi assoluti).
+4. Avvisa in chat (`POST /api/social/reply`): "📌 Digest Pinterest aggiornato nel
+   Brain — [3 keyword top] — SMM e Creative Director possono partire coi pin".
+   SMM e Creative Director leggono la nota dal Brain prima di creare pin.
+
 ## Task 3 — Ingest Gmail/newsletter (quotidiano)
 
 Leggi le newsletter di settore dalla Gmail, estrai le notizie rilevanti e spingile
