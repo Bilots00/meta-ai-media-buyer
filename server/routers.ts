@@ -37,6 +37,11 @@ import {
   evaluateAbTest, triggerAlert,
 } from "./aiAgent";
 import {
+  getMissionControlOverview, getCampaignDrawer, getAgentDrawer,
+  pauseOrResumeCampaign, setCampaignManaged,
+  aiManagerChatList, aiManagerSend, aiManagerConfirmAction, runAgentsCycle,
+} from "./metaAgentsService";
+import {
   addMarketStore, removeMarketStore, listMarketStores, updateMarketStore,
   getMarketChanges, updateMarketChange,
 } from "./db";
@@ -345,6 +350,27 @@ export const appRouter = router({
         await saveResearchConfig(ctx.user.id, input);
         return { success: true } as const;
       }),
+  }),
+
+  // ─── Mission Control + AI Manager (team agenti Paid Advertising) ────────────
+  metaAgents: router({
+    overview: protectedProcedure.query(async ({ ctx }) => getMissionControlOverview(ctx.user.id)),
+    campaignDrawer: protectedProcedure.input(z.object({ campaignId: z.number() }))
+      .query(async ({ ctx, input }) => getCampaignDrawer(ctx.user.id, input.campaignId)),
+    agentDrawer: protectedProcedure.input(z.object({ code: z.string().min(1) }))
+      .query(async ({ ctx, input }) => getAgentDrawer(ctx.user.id, input.code)),
+    pauseCampaign: protectedProcedure.input(z.object({ campaignId: z.number() }))
+      .mutation(async ({ ctx, input }) => pauseOrResumeCampaign(ctx.user.id, input.campaignId, "pause")),
+    resumeCampaign: protectedProcedure.input(z.object({ campaignId: z.number() }))
+      .mutation(async ({ ctx, input }) => pauseOrResumeCampaign(ctx.user.id, input.campaignId, "resume")),
+    setManaged: protectedProcedure.input(z.object({ campaignId: z.number(), managed: z.boolean() }))
+      .mutation(async ({ ctx, input }) => setCampaignManaged(ctx.user.id, input.campaignId, input.managed)),
+    runCycle: protectedProcedure.mutation(async ({ ctx }) => runAgentsCycle(ctx.user.id)),
+    chatList: protectedProcedure.query(async ({ ctx }) => aiManagerChatList(ctx.user.id)),
+    chatSend: protectedProcedure.input(z.object({ text: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => aiManagerSend(ctx.user.id, input.text)),
+    chatConfirm: protectedProcedure.input(z.object({ messageId: z.number(), approve: z.boolean() }))
+      .mutation(async ({ ctx, input }) => aiManagerConfirmAction(ctx.user.id, input.messageId, input.approve)),
   }),
 
   // ─── Meta Accounts ──────────────────────────────────────────────────────────

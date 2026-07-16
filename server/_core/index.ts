@@ -306,6 +306,61 @@ async function runMigrations() {
   } catch (err) {
     console.warn("[Migrate] colonna source non aggiunta:", err);
   }
+  // Mission Control (team agenti Paid Advertising) + AI Manager chat
+  try {
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS mc_agents (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL,
+      code VARCHAR(16) NOT NULL,
+      name VARCHAR(64) NOT NULL,
+      role VARCHAR(255) NOT NULL,
+      department VARCHAR(64) NOT NULL,
+      isLiaison BOOLEAN NOT NULL DEFAULT FALSE,
+      colorHue VARCHAR(64) NOT NULL,
+      status VARCHAR(16) NOT NULL DEFAULT 'idle',
+      lastActiveAt TIMESTAMP NULL,
+      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_mc_agent (userId, code)
+    ) DEFAULT CHARSET=utf8mb4`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS mc_activity (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL,
+      agentCode VARCHAR(16) NOT NULL,
+      campaignId INT NULL,
+      message TEXT NOT NULL,
+      details JSON,
+      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_mc_activity_user (userId),
+      INDEX idx_mc_activity_campaign (campaignId)
+    ) DEFAULT CHARSET=utf8mb4`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS mc_campaign_state (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL,
+      campaignId INT NOT NULL,
+      managed BOOLEAN NOT NULL DEFAULT TRUE,
+      assignedAgentCode VARCHAR(16) NOT NULL DEFAULT 'polaris',
+      mcStatus VARCHAR(24) NOT NULL DEFAULT 'active',
+      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_mc_campaign (campaignId)
+    ) DEFAULT CHARSET=utf8mb4`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS meta_chat_messages (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL,
+      role ENUM('user','assistant') NOT NULL,
+      text TEXT NOT NULL,
+      source VARCHAR(16) NOT NULL DEFAULT 'web',
+      status ENUM('new','handled') NOT NULL DEFAULT 'new',
+      actionJson JSON,
+      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      handledAt TIMESTAMP NULL,
+      INDEX idx_meta_chat_user (userId),
+      INDEX idx_meta_chat_status (status)
+    ) DEFAULT CHARSET=utf8mb4`);
+    console.log("[Migrate] Tabelle mc_* + meta_chat_messages pronte");
+  } catch (err) {
+    console.warn("[Migrate] tabelle mission control non create:", err);
+  }
 }
 
 function isPortAvailable(port: number): Promise<boolean> {

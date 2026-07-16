@@ -10,7 +10,7 @@ import {
   LogOut, Megaphone, Package, Package2, PanelLeft, Plug,
   Sparkles, Target, Zap, MessageSquare, Calendar, PenSquare,
   Library, Images, Lightbulb, Settings as SettingsIcon, ClipboardList, Headset, Inbox, Radar,
-  Newspaper, TrendingUp, BookOpen,
+  Newspaper, TrendingUp, BookOpen, Star, Satellite,
 } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
@@ -19,6 +19,8 @@ import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 // ─── Nav Config ───────────────────────────────────────────────────────────────
 const META_ADS_ITEMS = [
   { icon: BarChart3, label: "Dashboard", path: "/dashboard", description: "KPI & Performance" },
+  { icon: Star, label: "AI Manager", path: "/ai-manager", description: "Polaris: lancia campagne in chat" },
+  { icon: Satellite, label: "Mission Control", path: "/mission-control", description: "Team agenti AI in tempo reale" },
   { icon: Megaphone, label: "Campagne", path: "/campaigns", description: "Gestione campagne META" },
   { icon: Target, label: "Obiettivi AI", path: "/goals", description: "Goal-based agent" },
   { icon: Sparkles, label: "Audit AI", path: "/audit", description: "Analisi account" },

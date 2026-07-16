@@ -3,6 +3,7 @@ import { refreshAllWatchlistChannels } from "../watchlistService";
 import { insertSocialChatMessage, getAllUserSettings } from "../db";
 import { runAllStoresCycle, enrichPendingMarketChanges } from "../marketIntelService";
 import { runAllEtsyShops } from "../etsyService";
+import { runAgentsCycle } from "../metaAgentsService";
 
 // Scheduler in-process (il server Railway è always-on): job giornalieri a orario
 // fisso italiano, indipendenti dai bottoni della UI e dal browser aperto.
@@ -104,4 +105,21 @@ export function registerDailySchedules() {
     const r = await runAllEtsyShops(OWNER_USER_ID);
     console.log(`[Scheduler] etsy 09:45: shops=${r.shops} listings=${r.listings} errori=${r.errors.length}`);
   });
+
+  // Mission Control: ciclo del team agenti Paid Advertising ogni 30 minuti
+  // (Vega verifica ads live, Sirius scrive update performance, Nova raccomanda).
+  // Il service esce subito se non ci sono campagne ACTIVE gestite dagli agenti.
+  const AGENTS_CYCLE_MS = 30 * 60 * 1000;
+  const agentsTimer = setInterval(async () => {
+    try {
+      const r = await runAgentsCycle(OWNER_USER_ID);
+      if (r.campaignsChecked > 0) {
+        console.log(`[Scheduler] meta-agents-cycle: campagne=${r.campaignsChecked} update=${r.updates} alert=${r.alertsRaised}`);
+      }
+    } catch (err) {
+      console.warn("[Scheduler] meta-agents-cycle fallito:", err);
+    }
+  }, AGENTS_CYCLE_MS);
+  agentsTimer.unref?.();
+  console.log("[Scheduler] \"meta-agents-cycle\" attivo ogni 30 min (solo campagne gestite dagli agenti)");
 }

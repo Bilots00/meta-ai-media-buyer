@@ -602,3 +602,56 @@ export const etsyListings = mysqlTable("etsy_listings", {
   capturedAt: timestamp("capturedAt").defaultNow().notNull(),
 }, (t) => [uniqueIndex("uq_etsy_listing").on(t.shopId, t.listingId)]);
 export type EtsyListingRow = typeof etsyListings.$inferSelect;
+
+// ─── Mission Control: team di agenti AI del reparto Paid Advertising ──────────
+export const mcAgents = mysqlTable("mc_agents", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  code: varchar("code", { length: 16 }).notNull(),
+  name: varchar("name", { length: 64 }).notNull(),
+  role: varchar("role", { length: 255 }).notNull(),
+  department: varchar("department", { length: 64 }).notNull(),
+  isLiaison: boolean("isLiaison").default(false).notNull(),
+  colorHue: varchar("colorHue", { length: 64 }).notNull(),
+  status: varchar("status", { length: 16 }).default("idle").notNull(), // idle | working
+  lastActiveAt: timestamp("lastActiveAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [uniqueIndex("uq_mc_agent").on(t.userId, t.code)]);
+export type McAgent = typeof mcAgents.$inferSelect;
+
+export const mcActivity = mysqlTable("mc_activity", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  agentCode: varchar("agentCode", { length: 16 }).notNull(),
+  campaignId: int("campaignId"),
+  message: text("message").notNull(),
+  details: json("details"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type McActivityRow = typeof mcActivity.$inferSelect;
+
+export const mcCampaignState = mysqlTable("mc_campaign_state", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  campaignId: int("campaignId").notNull(),
+  managed: boolean("managed").default(true).notNull(),
+  assignedAgentCode: varchar("assignedAgentCode", { length: 16 }).default("polaris").notNull(),
+  mcStatus: varchar("mcStatus", { length: 24 }).default("active").notNull(), // generating|publishing|active|needs_attention|review|paused|done
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => [uniqueIndex("uq_mc_campaign").on(t.campaignId)]);
+export type McCampaignState = typeof mcCampaignState.$inferSelect;
+
+// ─── AI Manager (chat con l'orchestrator Polaris, stile Athena) ────────────────
+export const metaChatMessages = mysqlTable("meta_chat_messages", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  role: mysqlEnum("role", ["user", "assistant"]).notNull(),
+  text: text("text").notNull(),
+  source: varchar("source", { length: 16 }).default("web").notNull(),
+  status: mysqlEnum("status", ["new", "handled"]).default("new").notNull(),
+  actionJson: json("actionJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  handledAt: timestamp("handledAt"),
+});
+export type MetaChatMessage = typeof metaChatMessages.$inferSelect;
