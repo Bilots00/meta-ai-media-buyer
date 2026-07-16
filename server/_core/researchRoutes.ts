@@ -36,6 +36,8 @@ export function registerResearchRoutes(app: Express) {
         const n = parseFloat(String(v ?? ""));
         return Number.isFinite(n) ? n : d;
       };
+      const sortRaw = String(q.sort ?? "best");
+      const validSorts = ["best", "virality", "target", "interest", "engagement", "recent"] as const;
       const items = await getResearchItems(OWNER_USER_ID, {
         source: q.source ? String(q.source) : undefined,
         status: q.status ? String(q.status) : undefined,
@@ -44,6 +46,7 @@ export function registerResearchRoutes(app: Express) {
         minTarget: num(q.min_target, 0),
         search: q.search ? String(q.search) : undefined,
         limit: Math.min(num(q.limit, 50), 300),
+        sort: (validSorts as readonly string[]).includes(sortRaw) ? (sortRaw as typeof validSorts[number]) : "best",
       });
       res.json({
         success: true,

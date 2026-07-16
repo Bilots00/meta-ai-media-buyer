@@ -34,6 +34,7 @@ export async function getResearchConfig(userId: number): Promise<{ sources: Rese
         newsQueries: Array.isArray(parsed.newsQueries) ? parsed.newsQueries : DEFAULT_SOURCES.newsQueries,
         substacks: Array.isArray(parsed.substacks) ? parsed.substacks : DEFAULT_SOURCES.substacks,
         trendsGeo: typeof parsed.trendsGeo === "string" && parsed.trendsGeo ? parsed.trendsGeo : DEFAULT_SOURCES.trendsGeo,
+        pinterestInterestIds: Array.isArray(parsed.pinterestInterestIds) ? parsed.pinterestInterestIds : DEFAULT_SOURCES.pinterestInterestIds,
       };
     } catch {
       // JSON corrotto: si riparte dai default
@@ -188,7 +189,7 @@ export async function ingestResearchItems(
     .filter((i) => i.title)
     .map((i) => {
       const engagement = Number(i.engagement ?? 0);
-      const source = (["reddit", "news", "trends", "substack", "gmail", "manual"] as ResearchSource[])
+      const source = (["reddit", "news", "trends", "substack", "pinterest", "gmail", "manual"] as ResearchSource[])
         .includes(i.source as ResearchSource) ? (i.source as ResearchSource) : "manual";
       return {
         source,

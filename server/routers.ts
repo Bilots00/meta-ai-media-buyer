@@ -36,6 +36,15 @@ import {
   runAccountAudit, generateAdCopy, runOptimizationCycle,
   evaluateAbTest, triggerAlert,
 } from "./aiAgent";
+import {
+  addMarketStore, removeMarketStore, listMarketStores, updateMarketStore,
+  getMarketChanges, updateMarketChange,
+} from "./db";
+import {
+  runAllStoresCycle, runStoreMonitorCycle, getMarketConfig, saveMarketConfig, generateOpportunityBrief,
+} from "./marketIntelService";
+import { normalizeDomain, isShopifyStore } from "./marketIntel";
+import { researchEtsyKeyword, analyzeEtsyShop } from "./etsyIntel";
 
 function fmtClock(d: Date | string): string {
   return new Date(d).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" });
@@ -67,6 +76,52 @@ export const appRouter = router({
       await upsertUserSetting(ctx.user.id, input.key, input.value);
       return { success: true } as const;
     }),
+  }),
+
+  // ─── Market Intelligence: Product Market FIT (monitor competitor Shopify) ────
+  marketIntel: router({
+    listStores: protectedProcedure.query(async ({ ctx }) => listMarketStores(ctx.user.id)),
+    addStore: protectedProcedure
+      .input(z.object({ label: z.string().min(1), domain: z.string().min(3), frequencyHours: z.number().min(1).max(168).optional(), collections: z.array(z.string()).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const domain = normalizeDomain(input.domain);
+        const isShop = await isShopifyStore(domain);
+        const id = await addMarketStore(ctx.user.id, {
+          label: input.label, domain, frequencyHours: input.frequencyHours,
+          collectionsFilter: input.collections?.length ? JSON.stringify(input.collections) : null, isShopify: isShop,
+        });
+        return { success: true, id, isShopify: isShop } as const;
+      }),
+    removeStore: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
+      await removeMarketStore(ctx.user.id, input.id); return { success: true } as const;
+    }),
+    updateStore: protectedProcedure
+      .input(z.object({ id: z.number(), label: z.string().optional(), frequencyHours: z.number().min(1).max(168).optional(), status: z.enum(["active", "paused"]).optional() }))
+      .mutation(async ({ input }) => {
+        const patch: { label?: string; frequencyHours?: number; status?: "active" | "paused" } = {};
+        if (input.label !== undefined) patch.label = input.label;
+        if (input.frequencyHours !== undefined) patch.frequencyHours = input.frequencyHours;
+        if (input.status !== undefined) patch.status = input.status;
+        await updateMarketStore(input.id, patch); return { success: true } as const;
+      }),
+    runNow: protectedProcedure.input(z.object({ id: z.number().optional() })).mutation(async ({ ctx, input }) => {
+      const r = input.id ? await runStoreMonitorCycle(ctx.user.id, input.id) : await runAllStoresCycle(ctx.user.id);
+      return { success: true, ...r } as const;
+    }),
+    listChanges: protectedProcedure
+      .input(z.object({ storeId: z.number().optional(), changeType: z.string().optional(), status: z.string().optional(), minScore: z.number().optional(), hours: z.number().optional(), limit: z.number().optional() }))
+      .query(async ({ ctx, input }) => getMarketChanges(ctx.user.id, input)),
+    setChangeStatus: protectedProcedure.input(z.object({ id: z.number(), status: z.enum(["nuovo", "letto", "archiviato"]) }))
+      .mutation(async ({ input }) => { await updateMarketChange(input.id, { status: input.status }); return { success: true } as const; }),
+    getConfig: protectedProcedure.query(async ({ ctx }) => getMarketConfig(ctx.user.id)),
+    setConfig: protectedProcedure.input(z.object({ brandContext: z.string().optional(), autopilot: z.boolean().optional(), minScore: z.number().optional(), reviewRate: z.number().optional() }))
+      .mutation(async ({ ctx, input }) => { await saveMarketConfig(ctx.user.id, input); return { success: true } as const; }),
+    brief: protectedProcedure.input(z.object({ hours: z.number().optional() })).query(async ({ ctx, input }) => ({ brief: await generateOpportunityBrief(ctx.user.id, input.hours) })),
+    // Etsy Product Research (metodo Everbee/Alura via Firecrawl stealth)
+    etsyKeyword: protectedProcedure.input(z.object({ query: z.string().min(2), limit: z.number().min(1).max(60).optional() }))
+      .mutation(async ({ input }) => researchEtsyKeyword(input.query, { limit: input.limit })),
+    etsyShop: protectedProcedure.input(z.object({ url: z.string().min(3) }))
+      .mutation(async ({ input }) => analyzeEtsyShop(input.url)),
   }),
 
   // ─── Social Organico: AI Manager chat + Bozze ───────────────────────────────
@@ -199,6 +254,7 @@ export const appRouter = router({
         minTarget: z.number().min(0).max(10).default(0),
         search: z.string().optional(),
         limit: z.number().min(1).max(300).default(100),
+        sort: z.enum(["best", "virality", "target", "interest", "engagement", "recent"]).default("best"),
       }))
       .query(async ({ ctx, input }) => {
         return getResearchItems(ctx.user.id, input);
@@ -255,6 +311,7 @@ export const appRouter = router({
           newsQueries: z.array(z.string()),
           substacks: z.array(z.string()),
           trendsGeo: z.string(),
+          pinterestInterestIds: z.array(z.string()).default([]),
         }).optional(),
         brandContext: z.string().optional(),
         autopilot: z.boolean().optional(),

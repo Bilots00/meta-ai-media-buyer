@@ -10,6 +10,7 @@ import { registerSocialRoutes } from "./socialRoutes";
 import { registerWatchlistRoutes } from "./watchlistRoutes";
 import { registerImageProxy } from "./imageProxy";
 import { registerResearchRoutes } from "./researchRoutes";
+import { registerMarketRoutes } from "./marketRoutes";
 import { registerDailySchedules } from "./scheduler";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
@@ -194,6 +195,68 @@ async function runMigrations() {
   } catch (err) {
     console.warn("[Migrate] tabella research_items non creata:", err);
   }
+  try {
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS market_stores (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL,
+      label VARCHAR(255) NOT NULL,
+      domain VARCHAR(255) NOT NULL,
+      platform VARCHAR(16) NOT NULL DEFAULT 'shopify',
+      status VARCHAR(16) NOT NULL DEFAULT 'pending',
+      frequencyHours INT NOT NULL DEFAULT 24,
+      collectionsFilter TEXT,
+      isShopify BOOLEAN NOT NULL DEFAULT TRUE,
+      productCount INT NOT NULL DEFAULT 0,
+      lastError TEXT,
+      lastRefreshAt TIMESTAMP NULL,
+      createdAt TIMESTAMP NULL,
+      updatedAt TIMESTAMP NULL,
+      UNIQUE KEY uq_market_store (userId, domain)
+    ) DEFAULT CHARSET=utf8mb4`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS market_products (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL, storeId INT NOT NULL,
+      productId VARCHAR(64) NOT NULL, handle VARCHAR(255), title TEXT NOT NULL,
+      productType VARCHAR(255), vendor VARCHAR(255), tags TEXT, url TEXT, imageUrl TEXT,
+      minPrice DECIMAL(12,2), compareAtPrice DECIMAL(12,2), currency VARCHAR(8),
+      available BOOLEAN NOT NULL DEFAULT TRUE, totalVariants INT NOT NULL DEFAULT 0,
+      variantsAvailable INT NOT NULL DEFAULT 0, publishedAt TIMESTAMP NULL,
+      firstSeenAt TIMESTAMP NULL, lastSeenAt TIMESTAMP NULL, active BOOLEAN NOT NULL DEFAULT TRUE,
+      bestSellerRank INT, estUnits INT, estMethod VARCHAR(24), estConfidence VARCHAR(8),
+      UNIQUE KEY uq_market_product (storeId, productId)
+    ) DEFAULT CHARSET=utf8mb4`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS market_snapshots (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      storeId INT NOT NULL, productId VARCHAR(64) NOT NULL,
+      minPrice DECIMAL(12,2), compareAtPrice DECIMAL(12,2),
+      available BOOLEAN NOT NULL DEFAULT TRUE, variantsAvailable INT NOT NULL DEFAULT 0,
+      totalVariants INT NOT NULL DEFAULT 0, trueStock INT, bestSellerRank INT, reviewCount INT,
+      capturedAt TIMESTAMP NULL
+    ) DEFAULT CHARSET=utf8mb4`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS market_changes (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL, storeId INT NOT NULL, productId VARCHAR(64),
+      changeType VARCHAR(24) NOT NULL, title TEXT, url TEXT, oldValue TEXT, newValue TEXT,
+      detail TEXT, brief TEXT, angle TEXT, score INT,
+      status VARCHAR(16) NOT NULL DEFAULT 'nuovo', detectedAt TIMESTAMP NULL, enrichedAt TIMESTAMP NULL
+    ) DEFAULT CHARSET=utf8mb4`);
+    console.log("[Migrate] Tabelle market_* pronte");
+  } catch (err) {
+    console.warn("[Migrate] tabelle market non create:", err);
+  }
+  try {
+    for (const s of [
+      { label: "DotComCanvas", domain: "dotcomcanvas.de" },
+      { label: "iKonick", domain: "ikonick.com" },
+      { label: "Gernucci", domain: "gernucci.com" },
+    ]) {
+      await db.execute(sql`INSERT IGNORE INTO market_stores (userId, label, domain, platform, status, frequencyHours, isShopify, createdAt, updatedAt)
+        VALUES (1, ${s.label}, ${s.domain}, 'shopify', 'pending', 24, TRUE, NOW(), NOW())`);
+    }
+    console.log("[Migrate] market_stores seed pronti");
+  } catch (err) {
+    console.warn("[Migrate] seed market non inserito:", err);
+  }
   // Migrazione additiva idempotente: colonna `source` (web|telegram) su social_chat_messages
   try {
     const res: any = await db.execute(sql`SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'social_chat_messages' AND COLUMN_NAME = 'source'`);
@@ -240,6 +303,7 @@ async function startServer() {
   registerWatchlistRoutes(app);
   registerImageProxy(app);
   registerResearchRoutes(app);
+  registerMarketRoutes(app);
   // tRPC API
   app.use(
     "/api/trpc",

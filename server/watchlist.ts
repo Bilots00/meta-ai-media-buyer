@@ -466,7 +466,7 @@ export function hasApifyToken(): boolean {
   return Boolean(process.env.APIFY_TOKEN);
 }
 
-async function apifyRunSync<T>(actorId: string, input: unknown): Promise<T[]> {
+export async function apifyRunSync<T>(actorId: string, input: unknown): Promise<T[]> {
   const token = process.env.APIFY_TOKEN;
   if (!token) throw new Error("APIFY_TOKEN non configurato nelle variabili d'ambiente");
   const url = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}&timeout=120`;

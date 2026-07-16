@@ -1,6 +1,6 @@
-import { eq, desc, and, or, isNull, gte, lte, sql } from "drizzle-orm";
+import { eq, desc, and, or, isNull, gte, lte, sql, notInArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, metaAccounts, campaigns, adSets, ads, kpiSnapshots, goals, agentLogs, abTests, alerts, copyGenerations, trackingConfigs, userSettings, csConversations, csMessages, socialDrafts, socialChatMessages, watchlistChannels, watchlistVideos, researchItems } from "../drizzle/schema";
+import { InsertUser, users, metaAccounts, campaigns, adSets, ads, kpiSnapshots, goals, agentLogs, abTests, alerts, copyGenerations, trackingConfigs, userSettings, csConversations, csMessages, socialDrafts, socialChatMessages, watchlistChannels, watchlistVideos, researchItems, marketStores, marketProducts, marketSnapshots, marketChanges } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -729,6 +729,8 @@ export interface ResearchFilters {
   minTarget?: number;
   search?: string;
   limit?: number;
+  // best = punteggio combinato (viralità + 1.5×target + 1.2×interesse)
+  sort?: "best" | "virality" | "target" | "interest" | "engagement" | "recent";
 }
 
 export async function getResearchItems(userId: number, f: ResearchFilters = {}) {
@@ -745,9 +747,19 @@ export async function getResearchItems(userId: number, f: ResearchFilters = {}) 
   if (f.minVirality && f.minVirality > 0) conds.push(gte(researchItems.viralityScore, f.minVirality));
   if (f.minTarget && f.minTarget > 0) conds.push(gte(researchItems.targetScore, f.minTarget));
   if (f.search) conds.push(sql`${researchItems.title} LIKE ${`%${f.search}%`}`);
+  // "best" = miglior rapporto combinato: il target pesa più di tutto (lezione
+  // anti-traffico-freddo), poi interesse, poi viralità
+  const combined = sql`(${researchItems.viralityScore} + COALESCE(${researchItems.targetScore}, 0) * 1.5 + COALESCE(${researchItems.interestScore}, 0) * 1.2)`;
+  const orderBy =
+    f.sort === "virality" ? [desc(researchItems.viralityScore)]
+    : f.sort === "target" ? [desc(sql`COALESCE(${researchItems.targetScore}, -1)`)]
+    : f.sort === "interest" ? [desc(sql`COALESCE(${researchItems.interestScore}, -1)`)]
+    : f.sort === "engagement" ? [desc(researchItems.engagement)]
+    : f.sort === "recent" ? [desc(researchItems.publishedAt)]
+    : [desc(combined)];
   return db.select().from(researchItems)
     .where(and(...conds))
-    .orderBy(desc(researchItems.viralityScore), desc(researchItems.publishedAt))
+    .orderBy(...orderBy, desc(researchItems.publishedAt))
     .limit(Math.min(f.limit ?? 100, 300));
 }
 
@@ -786,4 +798,86 @@ export async function setWatchlistVideoAnalysis(params: { userId: number; videoI
     .set({ analysisJson: params.analysis, analyzedAt: new Date() })
     .where(and(...conds));
   return Number((r as unknown as { affectedRows?: number }[])[0]?.affectedRows ?? 0) > 0;
+}
+
+// ─── Market Intelligence (competitor Shopify monitor) ─────────────────────────
+export async function addMarketStore(userId: number, s: { label: string; domain: string; frequencyHours?: number; collectionsFilter?: string | null; isShopify?: boolean }): Promise<number> {
+  const db = await getDb(); if (!db) throw new Error("DB not available");
+  const now = new Date();
+  const r = await db.insert(marketStores).values({
+    userId, label: s.label, domain: s.domain, status: "pending",
+    frequencyHours: s.frequencyHours ?? 24, collectionsFilter: s.collectionsFilter ?? null,
+    isShopify: s.isShopify ?? true, createdAt: now, updatedAt: now,
+  }).onDuplicateKeyUpdate({ set: { label: s.label, updatedAt: now, status: "pending" } });
+  return (r as unknown as { insertId?: number }[])[0]?.insertId ?? 0;
+}
+export async function removeMarketStore(userId: number, id: number): Promise<void> {
+  const db = await getDb(); if (!db) return;
+  await db.delete(marketStores).where(and(eq(marketStores.id, id), eq(marketStores.userId, userId)));
+}
+export async function listMarketStores(userId: number) {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(marketStores).where(eq(marketStores.userId, userId)).orderBy(desc(marketStores.createdAt));
+}
+export async function getMarketStore(userId: number, id: number) {
+  const db = await getDb(); if (!db) return undefined;
+  const r = await db.select().from(marketStores).where(and(eq(marketStores.id, id), eq(marketStores.userId, userId))).limit(1);
+  return r[0];
+}
+export async function updateMarketStore(id: number, patch: Partial<typeof marketStores.$inferInsert>) {
+  const db = await getDb(); if (!db) return;
+  await db.update(marketStores).set({ ...patch, updatedAt: new Date() }).where(eq(marketStores.id, id));
+}
+export async function getMarketProducts(storeId: number) {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(marketProducts).where(eq(marketProducts.storeId, storeId));
+}
+export async function upsertMarketProduct(row: typeof marketProducts.$inferInsert) {
+  const db = await getDb(); if (!db) return;
+  await db.insert(marketProducts).values(row).onDuplicateKeyUpdate({ set: {
+    title: row.title, handle: row.handle, productType: row.productType, vendor: row.vendor, tags: row.tags,
+    url: row.url, imageUrl: row.imageUrl, minPrice: row.minPrice, compareAtPrice: row.compareAtPrice,
+    available: row.available, totalVariants: row.totalVariants, variantsAvailable: row.variantsAvailable,
+    lastSeenAt: row.lastSeenAt, active: true,
+    ...(row.bestSellerRank != null ? { bestSellerRank: row.bestSellerRank } : {}),
+    ...(row.estUnits != null ? { estUnits: row.estUnits } : {}),
+    ...(row.estMethod != null ? { estMethod: row.estMethod } : {}),
+    ...(row.estConfidence != null ? { estConfidence: row.estConfidence } : {}),
+  } });
+}
+export async function markMarketProductsInactive(storeId: number, keepProductIds: string[]) {
+  const db = await getDb(); if (!db) return;
+  if (keepProductIds.length === 0) { await db.update(marketProducts).set({ active: false }).where(eq(marketProducts.storeId, storeId)); return; }
+  await db.update(marketProducts).set({ active: false }).where(and(eq(marketProducts.storeId, storeId), notInArray(marketProducts.productId, keepProductIds)));
+}
+export async function insertMarketSnapshot(row: typeof marketSnapshots.$inferInsert) {
+  const db = await getDb(); if (!db) return;
+  await db.insert(marketSnapshots).values({ ...row, capturedAt: row.capturedAt ?? new Date() });
+}
+export async function insertMarketChanges(rows: Array<typeof marketChanges.$inferInsert>) {
+  const db = await getDb(); if (!db || rows.length === 0) return;
+  await db.insert(marketChanges).values(rows.map((r) => ({ ...r, detectedAt: r.detectedAt ?? new Date() })));
+}
+export async function getMarketChanges(userId: number, f: { storeId?: number; changeType?: string; status?: string; minScore?: number; hours?: number; limit?: number } = {}) {
+  const db = await getDb(); if (!db) return [];
+  const conds = [eq(marketChanges.userId, userId)];
+  if (f.storeId) conds.push(eq(marketChanges.storeId, f.storeId));
+  if (f.changeType) conds.push(eq(marketChanges.changeType, f.changeType));
+  if (f.status) conds.push(eq(marketChanges.status, f.status as "nuovo" | "letto" | "archiviato"));
+  if (f.minScore) conds.push(gte(marketChanges.score, f.minScore));
+  if (f.hours) conds.push(gte(marketChanges.detectedAt, new Date(Date.now() - f.hours * 3600_000)));
+  return db.select().from(marketChanges).where(and(...conds)).orderBy(desc(marketChanges.detectedAt)).limit(Math.min(f.limit ?? 100, 500));
+}
+export async function getUnenrichedMarketChanges(userId: number, limit = 15) {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(marketChanges).where(and(eq(marketChanges.userId, userId), isNull(marketChanges.score))).orderBy(desc(marketChanges.detectedAt)).limit(limit);
+}
+export async function getMarketChangeById(id: number) {
+  const db = await getDb(); if (!db) return undefined;
+  const r = await db.select().from(marketChanges).where(eq(marketChanges.id, id)).limit(1);
+  return r[0];
+}
+export async function updateMarketChange(id: number, patch: Partial<typeof marketChanges.$inferInsert>) {
+  const db = await getDb(); if (!db) return;
+  await db.update(marketChanges).set(patch).where(eq(marketChanges.id, id));
 }
