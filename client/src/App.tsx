@@ -32,6 +32,7 @@ import SocialWatchlist from "./pages/SocialWatchlist";
 import SeoResearch from "./pages/SeoResearch";
 import SeoBlogs from "./pages/SeoBlogs";
 import ProductMarketFit from "./pages/ProductMarketFit";
+import ClaudeSessions from "./pages/ClaudeSessions";
 import Settings from "./pages/Settings";
 import Login from "./pages/Login";
 
@@ -85,6 +86,10 @@ function AppRouter() {
       <Route path="/seo/research">{withLayout(SeoResearch)}</Route>
       <Route path="/seo/blogs">{withLayout(SeoBlogs)}</Route>
       <Route path="/seo">{() => { window.location.replace("/seo/research"); return null; }}</Route>
+
+      {/* CLAUDE AI */}
+      <Route path="/claude/sessions">{withLayout(ClaudeSessions)}</Route>
+      <Route path="/claude">{() => { window.location.replace("/claude/sessions"); return null; }}</Route>
 
       {/* CUSTOMER CARE */}
       <Route path="/care">{withLayout(CustomerCare)}</Route>

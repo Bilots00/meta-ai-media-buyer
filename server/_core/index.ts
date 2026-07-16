@@ -7,6 +7,7 @@ import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { registerCareRoutes } from "./careRoutes";
 import { registerSocialRoutes } from "./socialRoutes";
+import { registerClaudeRoutes } from "./claudeRoutes";
 import { registerWatchlistRoutes } from "./watchlistRoutes";
 import { registerImageProxy } from "./imageProxy";
 import { registerResearchRoutes } from "./researchRoutes";
@@ -409,6 +410,43 @@ async function runMigrations() {
   } catch (err) {
     console.warn("[Migrate] tabelle ads inspiration non create:", err);
   }
+  // Claude Sessions: sessioni Claude continuabili da web / Telegram / Claude Code
+  try {
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS claude_sessions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      source VARCHAR(16) NOT NULL DEFAULT 'web',
+      status ENUM('active','archived') NOT NULL DEFAULT 'active',
+      externalId VARCHAR(191) NULL,
+      lastPreview VARCHAR(280) NULL,
+      lastMessageAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_claude_session_external (userId, externalId),
+      INDEX idx_claude_sessions_user (userId),
+      INDEX idx_claude_sessions_status (status),
+      INDEX idx_claude_sessions_last (lastMessageAt)
+    ) DEFAULT CHARSET=utf8mb4`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS claude_session_messages (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      sessionId INT NOT NULL,
+      userId INT NOT NULL,
+      role ENUM('user','assistant','system') NOT NULL,
+      text MEDIUMTEXT NOT NULL,
+      source VARCHAR(16) NOT NULL DEFAULT 'web',
+      status ENUM('new','handled') NOT NULL DEFAULT 'new',
+      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      handledAt TIMESTAMP NULL,
+      INDEX idx_claude_msg_session (sessionId),
+      INDEX idx_claude_msg_user (userId),
+      INDEX idx_claude_msg_status (status),
+      INDEX idx_claude_msg_created (createdAt)
+    ) DEFAULT CHARSET=utf8mb4`);
+    console.log("[Migrate] Tabelle claude_sessions + claude_session_messages pronte");
+  } catch (err) {
+    console.warn("[Migrate] tabelle claude sessions non create:", err);
+  }
   // Migrazione additiva idempotente: 🩷 sui video della Watchlist (tab Templates)
   try {
     const res: any = await db.execute(sql`SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'watchlist_videos' AND COLUMN_NAME = 'liked'`);
@@ -453,6 +491,7 @@ async function startServer() {
   registerOAuthRoutes(app);
   registerCareRoutes(app);
   registerSocialRoutes(app);
+  registerClaudeRoutes(app);
   registerWatchlistRoutes(app);
   registerImageProxy(app);
   registerResearchRoutes(app);

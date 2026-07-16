@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#10131c" />
+    <title>DreamBrothers Hub — offline</title>
+    <style>
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: flex; align-items: center; justify-content: center;
+        background: #0B1730; color: #E8EEF7;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        text-align: center; padding: 24px;
+      }
+      .spark { width: 64px; height: 64px; margin: 0 auto 20px; }
+      h1 { font-size: 20px; margin: 0 0 8px; }
+      p { font-size: 14px; line-height: 1.6; color: #8FA3BF; margin: 0 0 20px; max-width: 320px; }
+      button {
+        background: #0075E3; color: white; border: 0; border-radius: 12px;
+        padding: 12px 24px; font-size: 14px; font-weight: 600; cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div>
+      <svg class="spark" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M50 6 L60 40 L94 50 L60 60 L50 94 L40 60 L6 50 L40 40 Z" fill="#0075E3" />
+      </svg>
+      <h1>Sei offline</h1>
+      <p>DreamBrothers Hub ha bisogno della rete per leggere i tuoi dati. Riprova appena torni online.</p>
+      <button onclick="location.reload()">Riprova</button>
+    </div>
+  </body>
+</html>

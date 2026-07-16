@@ -59,3 +59,12 @@ createRoot(document.getElementById("root")!).render(
     </QueryClientProvider>
   </trpc.Provider>
 );
+
+// Service worker solo in produzione: in dev intercetterebbe l'HMR di Vite.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch((err) => {
+      console.warn("[PWA] service worker non registrato:", err);
+    });
+  });
+}

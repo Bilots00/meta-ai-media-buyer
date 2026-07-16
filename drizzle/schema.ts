@@ -10,6 +10,7 @@ import {
   json,
   bigint,
   uniqueIndex,
+  mediumtext,
 } from "drizzle-orm/mysql-core";
 
 // ─── Users ────────────────────────────────────────────────────────────────────
@@ -700,3 +701,42 @@ export const metaChatMessages = mysqlTable("meta_chat_messages", {
   handledAt: timestamp("handledAt"),
 });
 export type MetaChatMessage = typeof metaChatMessages.$inferSelect;
+
+// ─── Claude Sessions (le sessioni Claude, ovunque: web, Telegram, Claude Code) ─
+// Stesso modello "agente-primario" di social_chat_messages, ma con la sessione
+// come contenitore: la web app scrive i messaggi dell'owner, l'agente Claude
+// (VPS o locale) fa polling su /api/claude/pending e risponde via /api/claude/reply.
+// externalId = chiave stabile per l'upsert dei transcript importati da Claude Code.
+export const claudeSessions = mysqlTable("claude_sessions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  // canale che ha creato la sessione: "web" | "telegram" | "code"
+  source: varchar("source", { length: 16 }).default("web").notNull(),
+  status: mysqlEnum("status", ["active", "archived"]).default("active").notNull(),
+  // slug/id stabile lato Claude Code, per l'upsert idempotente dei transcript
+  externalId: varchar("externalId", { length: 191 }),
+  lastPreview: varchar("lastPreview", { length: 280 }),
+  lastMessageAt: timestamp("lastMessageAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ClaudeSession = typeof claudeSessions.$inferSelect;
+export type InsertClaudeSession = typeof claudeSessions.$inferInsert;
+
+export const claudeSessionMessages = mysqlTable("claude_session_messages", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: int("sessionId").notNull(),
+  userId: int("userId").notNull(),
+  role: mysqlEnum("role", ["user", "assistant", "system"]).notNull(),
+  // MEDIUMTEXT: i turni di Claude Code possono superare i 64KB di TEXT
+  text: mediumtext("text").notNull(),
+  source: varchar("source", { length: 16 }).default("web").notNull(),
+  status: mysqlEnum("status", ["new", "handled"]).default("new").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  handledAt: timestamp("handledAt"),
+});
+
+export type ClaudeSessionMessage = typeof claudeSessionMessages.$inferSelect;
+export type InsertClaudeSessionMessage = typeof claudeSessionMessages.$inferInsert;

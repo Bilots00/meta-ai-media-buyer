@@ -10,9 +10,9 @@ import {
   LogOut, Megaphone, Package, Package2, PanelLeft, Plug,
   Sparkles, Target, Zap, MessageSquare, Calendar, PenSquare,
   Library, Images, Lightbulb, Settings as SettingsIcon, ClipboardList, Headset, Inbox, Radar,
-  Newspaper, TrendingUp, BookOpen, Star, Satellite,
+  Newspaper, TrendingUp, BookOpen, Star, Satellite, Brain, Menu, X,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
@@ -52,6 +52,10 @@ const CARE_ITEMS = [
   { icon: Inbox, label: "Inbox", path: "/care", description: "Tutti i messaggi clienti" },
 ];
 
+const CLAUDE_ITEMS = [
+  { icon: Brain, label: "Sessions", path: "/claude/sessions", description: "Le tue sessioni Claude, ovunque" },
+];
+
 const LIBRARY_ITEMS = [
   { icon: Lightbulb, label: "Inspiration", path: "/meta/library/inspiration", description: "Riferimenti & remix" },
   { icon: Images, label: "My Assets", path: "/meta/library/assets", description: "Creative generate (n8n / Drive)" },
@@ -68,7 +72,7 @@ const HIDDEN_ITEMS = [
 ];
 
 // Flat map for header lookup
-const ALL_ITEMS = [...META_ADS_ITEMS, ...GELATO_ITEMS, ...SOCIAL_ITEMS, ...SEO_ITEMS, ...CARE_ITEMS, ...LIBRARY_ITEMS, ...HIDDEN_ITEMS];
+const ALL_ITEMS = [...META_ADS_ITEMS, ...GELATO_ITEMS, ...SOCIAL_ITEMS, ...SEO_ITEMS, ...CARE_ITEMS, ...CLAUDE_ITEMS, ...LIBRARY_ITEMS, ...HIDDEN_ITEMS];
 
 // ─── NavGroup component ───────────────────────────────────────────────────────
 function NavGroup({
@@ -152,6 +156,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { loading, user, logout } = useAuth();
   const [location, navigate] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Sotto 1024px la sidebar è un drawer in overlay, chiuso di default: su mobile
+  // 260px di sidebar fissa non lasciano spazio al contenuto.
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  // Cambio pagina = drawer chiuso, altrimenti resta a coprire la pagina appena aperta.
+  useEffect(() => { setMobileNavOpen(false); }, [location]);
 
   const { data: dashboard } = trpc.kpi.getDashboard.useQuery({ days: 30 }, { enabled: !!user, refetchInterval: 60000 });
   const { data: alerts } = trpc.alerts.list.useQuery({ onlyUnread: true }, { enabled: !!user, refetchInterval: 30000 });
@@ -187,9 +197,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: "oklch(0.1 0.01 260)" }}>
-      {/* ── Sidebar ─────────────────────────────────────────────────── */}
+      {/* Backdrop del drawer mobile: un tap fuori chiude */}
+      {mobileNavOpen && (
+        <div
+          onClick={() => setMobileNavOpen(false)}
+          className="lg:hidden fixed inset-0 z-40"
+          style={{ background: "oklch(0.05 0.01 260 / 0.6)", backdropFilter: "blur(2px)" }}
+        />
+      )}
+
+      {/* ── Sidebar (fissa da lg in su, drawer overlay sotto) ────────── */}
       <aside
-        className="flex flex-col transition-all duration-300 ease-out shrink-0"
+        className={`flex flex-col transition-transform duration-300 ease-out shrink-0 fixed inset-y-0 left-0 z-50 lg:static lg:translate-x-0 ${mobileNavOpen ? "translate-x-0" : "-translate-x-full"}`}
         style={{ width: sidebarOpen ? "260px" : "72px", background: "oklch(0.12 0.015 260)", borderRight: "1px solid oklch(0.2 0.015 260)" }}
       >
         {/* Logo */}
@@ -203,8 +222,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <div className="text-xs text-muted-foreground whitespace-nowrap">Hub Centrale</div>
             </div>
           )}
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="ml-auto p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+          {/* Da lg in su collassa la sidebar; su mobile chiude il drawer */}
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="ml-auto p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors hidden lg:block">
             <PanelLeft className="w-4 h-4" />
+          </button>
+          <button onClick={() => setMobileNavOpen(false)} className="ml-auto p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors lg:hidden">
+            <X className="w-4 h-4" />
           </button>
         </div>
 
@@ -284,6 +307,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             defaultOpen={false}
           />
 
+          {/* Claude AI */}
+          <NavGroup
+            label="Claude AI"
+            icon={Brain}
+            color="oklch(0.72 0.15 40)"
+            items={CLAUDE_ITEMS}
+            location={location}
+            navigate={navigate}
+            sidebarOpen={sidebarOpen}
+            defaultOpen={false}
+          />
+
           {/* Library */}
           <NavGroup
             label="Library"
@@ -323,18 +358,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* ── Main Content ─────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top Bar */}
-        <header className="shrink-0 flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid oklch(0.2 0.015 260)", background: "oklch(0.12 0.015 260 / 0.8)", backdropFilter: "blur(12px)" }}>
-          <div>
+        <header className="shrink-0 flex items-center justify-between px-4 md:px-6 py-4 gap-3" style={{ borderBottom: "1px solid oklch(0.2 0.015 260)", background: "oklch(0.12 0.015 260 / 0.8)", backdropFilter: "blur(12px)" }}>
+          <div className="flex items-center gap-3 min-w-0">
+            <button onClick={() => setMobileNavOpen(true)} className="lg:hidden p-2 -ml-1 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0" title="Menu">
+              <Menu className="w-5 h-5" />
+            </button>
             {currentItem && (
-              <div>
-                <h1 className="text-lg font-semibold text-foreground">{currentItem.label}</h1>
-                <p className="text-xs text-muted-foreground">{currentItem.description}</p>
+              <div className="min-w-0">
+                <h1 className="text-lg font-semibold text-foreground truncate">{currentItem.label}</h1>
+                <p className="text-xs text-muted-foreground truncate">{currentItem.description}</p>
               </div>
             )}
           </div>
           <div className="flex items-center gap-3">
             {activeGoals > 0 && (
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium agent-running-indicator" style={{ background: "oklch(0.65 0.2 265 / 0.1)", border: "1px solid oklch(0.65 0.2 265 / 0.3)", color: "oklch(0.75 0.15 265)" }}>
+              <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium agent-running-indicator" style={{ background: "oklch(0.65 0.2 265 / 0.1)", border: "1px solid oklch(0.65 0.2 265 / 0.3)", color: "oklch(0.75 0.15 265)" }}>
                 <div className="pulse-dot pulse-dot-running" />
                 Agente META in esecuzione
               </div>
@@ -354,7 +392,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+        <main className="flex-1 overflow-y-auto p-4 md:p-6">{children}</main>
       </div>
     </div>
   );

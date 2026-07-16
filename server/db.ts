@@ -1,6 +1,6 @@
-import { eq, desc, and, or, isNull, gte, lte, sql, notInArray } from "drizzle-orm";
+import { eq, desc, asc, and, or, isNull, gte, lte, sql, notInArray, inArray, like } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, metaAccounts, campaigns, adSets, ads, kpiSnapshots, goals, agentLogs, abTests, alerts, copyGenerations, trackingConfigs, userSettings, csConversations, csMessages, socialDrafts, socialChatMessages, watchlistChannels, watchlistVideos, researchItems, marketStores, marketProducts, marketSnapshots, marketChanges, etsyShops, etsyShopSnapshots, etsyListings, mcAgents, mcActivity, mcCampaignState, metaChatMessages, adBrands, adInspirations } from "../drizzle/schema";
+import { InsertUser, users, metaAccounts, campaigns, adSets, ads, kpiSnapshots, goals, agentLogs, abTests, alerts, copyGenerations, trackingConfigs, userSettings, csConversations, csMessages, socialDrafts, socialChatMessages, watchlistChannels, watchlistVideos, researchItems, marketStores, marketProducts, marketSnapshots, marketChanges, etsyShops, etsyShopSnapshots, etsyListings, mcAgents, mcActivity, mcCampaignState, metaChatMessages, adBrands, adInspirations, claudeSessions, claudeSessionMessages, InsertClaudeSession } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -1103,4 +1103,175 @@ export async function getWatchlistVideoById(id: number) {
 export async function setWatchlistVideoLiked(id: number, liked: boolean) {
   const db = await getDb(); if (!db) return;
   await db.update(watchlistVideos).set({ liked, likedAt: liked ? new Date() : null }).where(eq(watchlistVideos.id, id));
+}
+
+// ─── Claude Sessions ──────────────────────────────────────────────────────────
+// Le sessioni Claude di Andrea, continuabili da qualsiasi superficie: web app,
+// Telegram, o Claude Code (che importa/esporta il transcript via externalId).
+// L'agente Claude fa polling su getPendingClaudeMessages e risponde con
+// recordClaudeReply, esattamente come l'agente social su social_chat_messages.
+
+const CLAUDE_PREVIEW_MAX = 280;
+
+// Il preview vive in una colonna VARCHAR(280): niente newline, niente code fence.
+function claudePreview(text: string): string {
+  const flat = text.replace(/```[\s\S]*?```/g, " [codice] ").replace(/\s+/g, " ").trim();
+  return flat.length > CLAUDE_PREVIEW_MAX ? flat.slice(0, CLAUDE_PREVIEW_MAX - 1) + "…" : flat;
+}
+
+export async function createClaudeSession(data: InsertClaudeSession): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const r = await db.insert(claudeSessions).values(data);
+  return Number((r as unknown as { insertId: number }[])[0].insertId);
+}
+
+export async function getClaudeSessionById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(claudeSessions).where(eq(claudeSessions.id, id)).limit(1);
+  return rows[0];
+}
+
+export async function findClaudeSessionByExternalId(userId: number, externalId: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(claudeSessions)
+    .where(and(eq(claudeSessions.userId, userId), eq(claudeSessions.externalId, externalId)))
+    .limit(1);
+  return rows[0];
+}
+
+export async function getClaudeSessions(
+  userId: number,
+  opts: { q?: string; includeArchived?: boolean; limit?: number } = {},
+) {
+  const db = await getDb();
+  if (!db) return [];
+  const limit = Math.min(opts.limit ?? 100, 200);
+  const filters = [eq(claudeSessions.userId, userId)];
+  if (!opts.includeArchived) filters.push(eq(claudeSessions.status, "active"));
+
+  const q = opts.q?.trim();
+  if (q) {
+    // Ricerca full-text: il titolo O il contenuto di un qualsiasi messaggio.
+    // I match sul contenuto arrivano da una subquery sugli id di sessione.
+    // Escape dei wildcard LIKE: una ricerca per "100%" non deve matchare tutto.
+    const needle = `%${q.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
+    const hits = await db.selectDistinct({ sessionId: claudeSessionMessages.sessionId })
+      .from(claudeSessionMessages)
+      .where(and(eq(claudeSessionMessages.userId, userId), like(claudeSessionMessages.text, needle)))
+      .limit(500);
+    const ids = hits.map((h) => h.sessionId);
+    const titleMatch = like(claudeSessions.title, needle);
+    filters.push(ids.length ? or(titleMatch, inArray(claudeSessions.id, ids))! : titleMatch);
+  }
+
+  const rows = await db.select().from(claudeSessions)
+    .where(and(...filters))
+    .orderBy(desc(claudeSessions.lastMessageAt))
+    .limit(limit);
+  if (!rows.length) return [];
+
+  // Conteggio messaggi per sessione in una sola query, poi rimappato.
+  const counts = await db.select({ sessionId: claudeSessionMessages.sessionId, n: sql<number>`count(*)` })
+    .from(claudeSessionMessages)
+    .where(inArray(claudeSessionMessages.sessionId, rows.map((r) => r.id)))
+    .groupBy(claudeSessionMessages.sessionId);
+  const countBy = new Map(counts.map((c) => [c.sessionId, Number(c.n)]));
+
+  return rows.map((r) => ({ ...r, messageCount: countBy.get(r.id) ?? 0 }));
+}
+
+export async function getClaudeSessionMessages(sessionId: number, limit = 500) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(claudeSessionMessages)
+    .where(eq(claudeSessionMessages.sessionId, sessionId))
+    .orderBy(asc(claudeSessionMessages.createdAt), asc(claudeSessionMessages.id))
+    .limit(limit);
+}
+
+export async function insertClaudeMessage(params: {
+  sessionId: number; userId: number; role: "user" | "assistant" | "system";
+  text: string; source?: string; status?: "new" | "handled"; createdAt?: Date;
+}): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const r = await db.insert(claudeSessionMessages).values({
+    sessionId: params.sessionId,
+    userId: params.userId,
+    role: params.role,
+    text: params.text,
+    source: params.source ?? "web",
+    status: params.status ?? "new",
+    ...(params.createdAt ? { createdAt: params.createdAt } : {}),
+  });
+  // La lista sessioni si ordina su lastMessageAt e mostra lastPreview: teniamoli allineati.
+  await db.update(claudeSessions)
+    .set({ lastMessageAt: params.createdAt ?? new Date(), lastPreview: claudePreview(params.text) })
+    .where(eq(claudeSessions.id, params.sessionId));
+  return Number((r as unknown as { insertId: number }[])[0].insertId);
+}
+
+export async function getPendingClaudeMessages(limit = 20) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    messageId: claudeSessionMessages.id,
+    sessionId: claudeSessionMessages.sessionId,
+    userId: claudeSessionMessages.userId,
+    text: claudeSessionMessages.text,
+    source: claudeSessionMessages.source,
+    createdAt: claudeSessionMessages.createdAt,
+    sessionTitle: claudeSessions.title,
+    sessionExternalId: claudeSessions.externalId,
+  }).from(claudeSessionMessages)
+    .innerJoin(claudeSessions, eq(claudeSessionMessages.sessionId, claudeSessions.id))
+    .where(and(eq(claudeSessionMessages.role, "user"), eq(claudeSessionMessages.status, "new")))
+    .orderBy(asc(claudeSessionMessages.createdAt))
+    .limit(limit);
+}
+
+export async function recordClaudeReply(params: {
+  sessionId: number; userId: number; text: string; replyToId?: number; source?: string;
+}): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  if (params.replyToId != null) {
+    // Marca gestito SOLO il messaggio a cui rispondiamo (evita race web/telegram).
+    await db.update(claudeSessionMessages)
+      .set({ status: "handled", handledAt: new Date() })
+      .where(eq(claudeSessionMessages.id, params.replyToId));
+  } else {
+    await db.update(claudeSessionMessages)
+      .set({ status: "handled", handledAt: new Date() })
+      .where(and(
+        eq(claudeSessionMessages.sessionId, params.sessionId),
+        eq(claudeSessionMessages.role, "user"),
+        eq(claudeSessionMessages.status, "new"),
+      ));
+  }
+  return insertClaudeMessage({
+    sessionId: params.sessionId,
+    userId: params.userId,
+    role: "assistant",
+    text: params.text,
+    source: params.source ?? "web",
+    status: "handled",
+  });
+}
+
+export async function updateClaudeSession(id: number, patch: { title?: string; status?: "active" | "archived" }) {
+  const db = await getDb();
+  if (!db) return;
+  if (patch.title === undefined && patch.status === undefined) return;
+  await db.update(claudeSessions).set(patch).where(eq(claudeSessions.id, id));
+}
+
+export async function deleteClaudeSession(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(claudeSessionMessages).where(eq(claudeSessionMessages.sessionId, id));
+  await db.delete(claudeSessions).where(eq(claudeSessions.id, id));
 }

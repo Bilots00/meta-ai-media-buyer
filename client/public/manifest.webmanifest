@@ -1,0 +1,42 @@
+{
+  "name": "DreamBrothers Hub",
+  "short_name": "DB Hub",
+  "description": "Il centro di controllo DreamBrothers: META Ads, Social, SEO, Customer Care e sessioni Claude.",
+  "lang": "it",
+  "dir": "ltr",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "theme_color": "#10131c",
+  "background_color": "#0B1730",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Claude Sessions",
+      "short_name": "Sessions",
+      "url": "/claude/sessions",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ]
+}

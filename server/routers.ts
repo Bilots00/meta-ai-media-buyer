@@ -18,6 +18,8 @@ import {
   getAllUserSettings, upsertUserSetting,
   getCsConversationsForUser, getCsMessagesForConversation, recordCsReply, updateCsConversation, getCsConversationById,
   getSocialChatMessages, insertSocialChatMessage, getSocialDraftsForUser, updateSocialDraft, deleteSocialDraft,
+  createClaudeSession, getClaudeSessionById, getClaudeSessions, getClaudeSessionMessages,
+  insertClaudeMessage, updateClaudeSession, deleteClaudeSession,
   getWatchlistChannels, deleteWatchlistChannel, getWatchlistVideos, getWatchlistChannelStats, getWatchlistChannelById,
   getWatchlistVideoById, setWatchlistVideoLiked,
   getResearchItems, getResearchItemById, updateResearchItem, getResearchCountries,
@@ -202,6 +204,88 @@ export const appRouter = router({
         autopilot: s.social_autopilot === "true",
         referenceFolder: s.social_reference_folder || "E:\\IDriveLocal\\ALL FILES -Cloud-Drive_andrea.bilotta00@gmail.com\\E-commerce\\MARKETING - PNL, Copy & Vendita\\Instagram DAILY post (Organic)",
         systemPrompt: s.social_system_prompt || "",
+      };
+    }),
+  }),
+
+  // ─── Claude Sessions: le sessioni Claude, continuabili da ovunque ────────────
+  claude: router({
+    sessions: protectedProcedure
+      .input(z.object({ q: z.string().optional(), includeArchived: z.boolean().optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        const rows = await getClaudeSessions(ctx.user.id, {
+          q: input?.q,
+          includeArchived: input?.includeArchived,
+        });
+        return rows.map((s) => ({
+          id: s.id,
+          title: s.title,
+          source: s.source,
+          status: s.status,
+          preview: s.lastPreview ?? "",
+          messageCount: s.messageCount,
+          when: fmtWhen(s.lastMessageAt),
+        }));
+      }),
+    messages: protectedProcedure.input(z.object({ sessionId: z.number() })).query(async ({ ctx, input }) => {
+      const session = await getClaudeSessionById(input.sessionId);
+      if (!session || session.userId !== ctx.user.id) return [];
+      const rows = await getClaudeSessionMessages(input.sessionId);
+      return rows.map((m) => ({
+        id: m.id,
+        role: m.role,
+        text: m.text,
+        source: m.source,
+        when: fmtWhen(m.createdAt),
+        pending: m.role === "user" && m.status === "new",
+      }));
+    }),
+    send: protectedProcedure
+      .input(z.object({ sessionId: z.number().optional(), text: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        let sessionId = input.sessionId;
+        if (sessionId != null) {
+          const session = await getClaudeSessionById(sessionId);
+          if (!session || session.userId !== ctx.user.id) throw new Error("Sessione non trovata");
+        } else {
+          // Prima riga del primo messaggio = titolo: la sessione si auto-nomina.
+          const flat = input.text.replace(/```[\s\S]*?```/g, " ").replace(/\s+/g, " ").trim();
+          const title = flat.length > 60 ? flat.slice(0, 59) + "…" : flat || "Nuova sessione";
+          sessionId = await createClaudeSession({ userId: ctx.user.id, title, source: "web" });
+        }
+        const id = await insertClaudeMessage({
+          sessionId, userId: ctx.user.id, role: "user", text: input.text, source: "web", status: "new",
+        });
+        return { success: true, id, sessionId } as const;
+      }),
+    rename: protectedProcedure
+      .input(z.object({ id: z.number(), title: z.string().min(1).max(255) }))
+      .mutation(async ({ ctx, input }) => {
+        const session = await getClaudeSessionById(input.id);
+        if (!session || session.userId !== ctx.user.id) throw new Error("Sessione non trovata");
+        await updateClaudeSession(input.id, { title: input.title });
+        return { success: true } as const;
+      }),
+    setStatus: protectedProcedure
+      .input(z.object({ id: z.number(), status: z.enum(["active", "archived"]) }))
+      .mutation(async ({ ctx, input }) => {
+        const session = await getClaudeSessionById(input.id);
+        if (!session || session.userId !== ctx.user.id) throw new Error("Sessione non trovata");
+        await updateClaudeSession(input.id, { status: input.status });
+        return { success: true } as const;
+      }),
+    remove: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
+      const session = await getClaudeSessionById(input.id);
+      if (!session || session.userId !== ctx.user.id) throw new Error("Sessione non trovata");
+      await deleteClaudeSession(input.id);
+      return { success: true } as const;
+    }),
+    agentStatus: protectedProcedure.query(async ({ ctx }) => {
+      const s = await getAllUserSettings(ctx.user.id);
+      const lastSeen = Number(s.claude_agent_last_seen ?? 0);
+      return {
+        online: lastSeen > 0 && Date.now() - lastSeen < 120_000,
+        lastSeen: lastSeen || null,
       };
     }),
   }),
