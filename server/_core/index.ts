@@ -269,6 +269,32 @@ async function runMigrations() {
   } catch (err) {
     console.warn("[Migrate] seed market non inserito:", err);
   }
+  try {
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS etsy_shops (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL, shopName VARCHAR(191) NOT NULL, url TEXT,
+      status VARCHAR(16) NOT NULL DEFAULT 'pending',
+      lastTotalSales INT, lastReviewCount INT, reviewRate DECIMAL(6,4), reviewAverage DECIMAL(3,2),
+      onEtsySinceYear INT, lastError TEXT, lastRefreshAt TIMESTAMP NULL,
+      createdAt TIMESTAMP NULL, updatedAt TIMESTAMP NULL,
+      UNIQUE KEY uq_etsy_shop (userId, shopName)
+    ) DEFAULT CHARSET=utf8mb4`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS etsy_shop_snapshots (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      shopId INT NOT NULL, totalSales INT, reviewCount INT, capturedAt TIMESTAMP NULL
+    ) DEFAULT CHARSET=utf8mb4`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS etsy_listings (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL, shopId INT NOT NULL, listingId VARCHAR(32) NOT NULL,
+      title TEXT, url TEXT, price DECIMAL(12,2), currency VARCHAR(8),
+      reviewCount INT NOT NULL DEFAULT 0, favorites INT, inCarts INT,
+      isBestseller BOOLEAN NOT NULL DEFAULT FALSE, estSales INT, estRevenue INT, opportunityScore INT,
+      capturedAt TIMESTAMP NULL, UNIQUE KEY uq_etsy_listing (shopId, listingId)
+    ) DEFAULT CHARSET=utf8mb4`);
+    console.log("[Migrate] Tabelle etsy_* pronte");
+  } catch (err) {
+    console.warn("[Migrate] tabelle etsy non create:", err);
+  }
   // Migrazione additiva idempotente: colonna `source` (web|telegram) su social_chat_messages
   try {
     const res: any = await db.execute(sql`SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'social_chat_messages' AND COLUMN_NAME = 'source'`);

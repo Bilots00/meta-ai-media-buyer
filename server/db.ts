@@ -1,6 +1,6 @@
 import { eq, desc, and, or, isNull, gte, lte, sql, notInArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, metaAccounts, campaigns, adSets, ads, kpiSnapshots, goals, agentLogs, abTests, alerts, copyGenerations, trackingConfigs, userSettings, csConversations, csMessages, socialDrafts, socialChatMessages, watchlistChannels, watchlistVideos, researchItems, marketStores, marketProducts, marketSnapshots, marketChanges } from "../drizzle/schema";
+import { InsertUser, users, metaAccounts, campaigns, adSets, ads, kpiSnapshots, goals, agentLogs, abTests, alerts, copyGenerations, trackingConfigs, userSettings, csConversations, csMessages, socialDrafts, socialChatMessages, watchlistChannels, watchlistVideos, researchItems, marketStores, marketProducts, marketSnapshots, marketChanges, etsyShops, etsyShopSnapshots, etsyListings } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -893,4 +893,56 @@ export async function getMarketChangeById(id: number) {
 export async function updateMarketChange(id: number, patch: Partial<typeof marketChanges.$inferInsert>) {
   const db = await getDb(); if (!db) return;
   await db.update(marketChanges).set(patch).where(eq(marketChanges.id, id));
+}
+
+// ─── Etsy watchlist (metodo Alura) ────────────────────────────────────────────
+export async function addEtsyShop(userId: number, s: { shopName: string; url?: string | null }): Promise<number> {
+  const db = await getDb(); if (!db) throw new Error("DB not available");
+  const now = new Date();
+  const r = await db.insert(etsyShops).values({ userId, shopName: s.shopName, url: s.url ?? null, status: "pending", createdAt: now, updatedAt: now })
+    .onDuplicateKeyUpdate({ set: { status: "pending", updatedAt: now } });
+  return (r as unknown as { insertId?: number }[])[0]?.insertId ?? 0;
+}
+export async function removeEtsyShop(userId: number, id: number): Promise<void> {
+  const db = await getDb(); if (!db) return;
+  await db.delete(etsyShops).where(and(eq(etsyShops.id, id), eq(etsyShops.userId, userId)));
+}
+export async function listEtsyShops(userId: number) {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(etsyShops).where(eq(etsyShops.userId, userId)).orderBy(desc(etsyShops.lastTotalSales));
+}
+export async function getEtsyShop(userId: number, id: number) {
+  const db = await getDb(); if (!db) return undefined;
+  const r = await db.select().from(etsyShops).where(and(eq(etsyShops.id, id), eq(etsyShops.userId, userId))).limit(1);
+  return r[0];
+}
+export async function updateEtsyShop(id: number, patch: Partial<typeof etsyShops.$inferInsert>) {
+  const db = await getDb(); if (!db) return;
+  await db.update(etsyShops).set({ ...patch, updatedAt: new Date() }).where(eq(etsyShops.id, id));
+}
+export async function insertEtsyShopSnapshot(row: typeof etsyShopSnapshots.$inferInsert) {
+  const db = await getDb(); if (!db) return;
+  await db.insert(etsyShopSnapshots).values({ ...row, capturedAt: row.capturedAt ?? new Date() });
+}
+/** Snapshot precedente (per la velocità di vendita): il più recente prima di adesso. */
+export async function getPrevEtsyShopSnapshot(shopId: number) {
+  const db = await getDb(); if (!db) return undefined;
+  const r = await db.select().from(etsyShopSnapshots).where(eq(etsyShopSnapshots.shopId, shopId)).orderBy(desc(etsyShopSnapshots.capturedAt)).limit(1);
+  return r[0];
+}
+export async function upsertEtsyListing(row: typeof etsyListings.$inferInsert) {
+  const db = await getDb(); if (!db) return;
+  await db.insert(etsyListings).values({ ...row, capturedAt: row.capturedAt ?? new Date() }).onDuplicateKeyUpdate({ set: {
+    title: row.title, url: row.url, price: row.price, currency: row.currency, reviewCount: row.reviewCount,
+    favorites: row.favorites, inCarts: row.inCarts, isBestseller: row.isBestseller, estSales: row.estSales,
+    estRevenue: row.estRevenue, opportunityScore: row.opportunityScore, capturedAt: row.capturedAt ?? new Date(),
+  } });
+}
+export async function getEtsyListingsByShop(shopId: number) {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(etsyListings).where(eq(etsyListings.shopId, shopId)).orderBy(desc(etsyListings.estSales));
+}
+export async function getTopEtsyListings(userId: number, limit = 50) {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(etsyListings).where(eq(etsyListings.userId, userId)).orderBy(desc(etsyListings.estSales)).limit(Math.min(limit, 300));
 }

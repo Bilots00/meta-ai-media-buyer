@@ -18,10 +18,17 @@ export default function ProductMarketFit() {
     onSuccess: () => { utils.marketIntel.listChanges.invalidate(); utils.marketIntel.listStores.invalidate(); utils.marketIntel.brief.invalidate(); },
   });
   const removeStore = trpc.marketIntel.removeStore.useMutation({ onSuccess: () => utils.marketIntel.listStores.invalidate() });
-  const etsy = trpc.marketIntel.etsyKeyword.useMutation();
+  const etsyKw = trpc.marketIntel.etsyKeyword.useMutation();
+  const etsyAnalyze = trpc.marketIntel.etsyAnalyze.useMutation();
+  const etsyWatch = trpc.marketIntel.etsyWatchList.useQuery();
+  const etsyWatchAdd = trpc.marketIntel.etsyWatchAdd.useMutation({ onSuccess: () => etsyWatch.refetch() });
+  const etsyWatchRemove = trpc.marketIntel.etsyWatchRemove.useMutation({ onSuccess: () => etsyWatch.refetch() });
+  const etsyWatchRefresh = trpc.marketIntel.etsyWatchRefresh.useMutation({ onSuccess: () => etsyWatch.refetch() });
   const [label, setLabel] = useState("");
   const [domain, setDomain] = useState("");
   const [etsyQ, setEtsyQ] = useState("");
+  const [etsyShopInput, setEtsyShopInput] = useState("");
+  const [listFilter, setListFilter] = useState("");
 
   return (
     <div className="space-y-6 max-w-6xl">
@@ -36,31 +43,93 @@ export default function ProductMarketFit() {
         <pre className="text-xs whitespace-pre-wrap text-muted-foreground">{brief.data?.brief ?? "…"}</pre>
       </div>
 
-      {/* Etsy Product Research (metodo Everbee/Alura via Firecrawl) */}
+      {/* ══ ETSY SHOP ANALYZER (metodo Alura calibrato) ══ */}
       <div className="rounded-2xl p-5" style={{ background: "oklch(0.14 0.02 40)", border: "1px solid oklch(0.24 0.04 40)" }}>
-        <h2 className="text-sm font-semibold mb-3" style={{ color: "oklch(0.8 0.15 45)" }}>Etsy Product Research — bestseller di nicchia</h2>
+        <h2 className="text-sm font-semibold mb-1" style={{ color: "oklch(0.8 0.15 45)" }}>Etsy Shop Analyzer — vendite per prodotto</h2>
+        <p className="text-[11px] text-muted-foreground mb-3">Vendite prodotto = recensioni prodotto ÷ review-rate shop (recensioni tot ÷ vendite tot, dati pubblici). Validato vs Alura entro 1 unità.</p>
         <div className="flex gap-2 mb-3">
-          <input value={etsyQ} onChange={(e) => setEtsyQ(e.target.value)} placeholder="keyword nicchia (es. motivational wall art)"
-            onKeyDown={(e) => { if (e.key === "Enter" && etsyQ.trim().length >= 2) etsy.mutate({ query: etsyQ.trim() }); }}
+          <input value={etsyShopInput} onChange={(e) => setEtsyShopInput(e.target.value)} placeholder="URL o nome shop (es. BabylonPrints)"
+            onKeyDown={(e) => { if (e.key === "Enter" && etsyShopInput.trim().length >= 3) etsyAnalyze.mutate({ shop: etsyShopInput.trim() }); }}
             className="px-3 py-2 rounded-lg text-sm flex-1" style={{ background: "oklch(0.16 0.02 40)", border: "1px solid oklch(0.24 0.03 40)" }} />
-          <Button disabled={etsy.isPending || etsyQ.trim().length < 2} onClick={() => etsy.mutate({ query: etsyQ.trim() })}>
-            {etsy.isPending ? "Ricerca…" : "Cerca su Etsy"}
+          <Button disabled={etsyAnalyze.isPending || etsyShopInput.trim().length < 3} onClick={() => etsyAnalyze.mutate({ shop: etsyShopInput.trim() })}>
+            {etsyAnalyze.isPending ? "Analisi…" : "Analizza"}
           </Button>
+          <Button disabled={etsyWatchAdd.isPending || etsyShopInput.trim().length < 2} onClick={() => etsyWatchAdd.mutate({ shop: etsyShopInput.trim() })}>+ Watchlist</Button>
         </div>
-        {etsy.isError && <div className="text-xs text-red-400 mb-2">{etsy.error?.message?.includes("FIRECRAWL") ? "Manca FIRECRAWL_API_KEY sul server (Railway → Variables)." : etsy.error?.message}</div>}
+        {etsyAnalyze.isError && <div className="text-xs text-red-400 mb-2">{String(etsyAnalyze.error?.message || "").includes("FIRECRAWL") ? "Manca FIRECRAWL_API_KEY sul server (Railway → Variables)." : etsyAnalyze.error?.message}</div>}
+        {etsyAnalyze.data && (
+          <>
+            <div className="grid grid-cols-4 gap-2 mb-3">
+              {[
+                ["Vendite tot", etsyAnalyze.data.shop.totalSales?.toLocaleString() ?? "?"],
+                ["Recensioni", etsyAnalyze.data.shop.reviewCount?.toLocaleString() ?? "?"],
+                ["Review rate", etsyAnalyze.data.shop.reviewRate != null ? (etsyAnalyze.data.shop.reviewRate * 100).toFixed(1) + "%" : "?"],
+                ["Vendite/mese", etsyAnalyze.data.shop.avgMonthlySales?.toLocaleString() ?? "?"],
+              ].map(([k, v]) => (
+                <div key={k} className="rounded-lg p-2 text-center" style={{ background: "oklch(0.16 0.02 40)" }}>
+                  <div className="text-sm font-semibold">{v}</div>
+                  <div className="text-[10px] text-muted-foreground">{k}</div>
+                </div>
+              ))}
+            </div>
+            <input value={listFilter} onChange={(e) => setListFilter(e.target.value)} placeholder="Filtra prodotti…"
+              className="px-3 py-2 rounded-lg text-sm w-full mb-2" style={{ background: "oklch(0.16 0.02 40)", border: "1px solid oklch(0.24 0.03 40)" }} />
+            <div className="space-y-1">
+              {etsyAnalyze.data.listings.filter((l) => l.title.toLowerCase().includes(listFilter.toLowerCase())).map((l) => (
+                <a key={l.listingId} href={l.url} target="_blank" rel="noreferrer" className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm hover:bg-accent" style={{ background: "oklch(0.15 0.015 40)" }}>
+                  {l.isBestseller && <Badge style={{ background: "oklch(0.65 0.2 145)" }}>BS</Badge>}
+                  <span className="flex-1 truncate">{l.title}</span>
+                  <span className="text-xs font-semibold whitespace-nowrap" style={{ color: "oklch(0.82 0.16 145)" }}>{l.estSales?.toLocaleString() ?? "?"} vendite</span>
+                  <span className="text-muted-foreground text-[11px] whitespace-nowrap">{l.reviewCount} rec · {l.currency} {l.price ?? "?"} · ♥{l.favorites ?? "?"}</span>
+                </a>
+              ))}
+              {etsyAnalyze.data.listings.length === 0 && <div className="text-xs text-muted-foreground">Nessun prodotto estratto.</div>}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* ══ ETSY WATCHLIST (monitor automatico dell'AI agent) ══ */}
+      <div className="rounded-2xl p-5" style={{ background: "oklch(0.12 0.015 40)", border: "1px solid oklch(0.2 0.02 40)" }}>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold">Etsy Watchlist — shop che l'AI agent scansiona ogni giorno</h2>
+          <Button size="sm" disabled={etsyWatchRefresh.isPending} onClick={() => etsyWatchRefresh.mutate({})}>{etsyWatchRefresh.isPending ? "Scan…" : "Aggiorna tutti"}</Button>
+        </div>
         <div className="space-y-1">
-          {(etsy.data?.listings ?? []).map((l) => (
-            <a key={l.listingId} href={l.url} target="_blank" rel="noreferrer"
-              className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm hover:bg-accent" style={{ background: "oklch(0.15 0.015 40)" }}>
-              <Badge style={{ background: "oklch(0.6 0.2 45)" }}>{l.opportunityScore}</Badge>
-              {l.isBestseller && <Badge style={{ background: "oklch(0.65 0.2 145)" }}>Bestseller</Badge>}
+          {(etsyWatch.data ?? []).map((s) => (
+            <div key={s.id} className="flex items-center justify-between px-3 py-2 rounded-lg text-sm" style={{ background: "oklch(0.15 0.015 40)" }}>
+              <span>{s.shopName} {s.lastTotalSales != null && <span className="text-muted-foreground">· {s.lastTotalSales.toLocaleString()} vendite · rate {s.reviewRate != null ? (Number(s.reviewRate) * 100).toFixed(1) + "%" : "?"}</span>}</span>
+              <span className="flex items-center gap-2">
+                <Badge>{s.status}</Badge>
+                <button className="text-xs text-muted-foreground hover:text-foreground" onClick={() => etsyWatchRefresh.mutate({ id: s.id })}>run</button>
+                <button className="text-xs text-red-400 hover:text-red-300" onClick={() => etsyWatchRemove.mutate({ id: s.id })}>×</button>
+              </span>
+            </div>
+          ))}
+          {etsyWatch.data?.length === 0 && <div className="text-xs text-muted-foreground">Aggiungi uno shop con "+ Watchlist" qui sopra: l'agent lo scansiona ogni giorno e ti prepara i prodotti vincenti da pubblicare.</div>}
+        </div>
+      </div>
+
+      {/* ══ ETSY KEYWORD RESEARCH (cross-shop) ══ */}
+      <div className="rounded-2xl p-5" style={{ background: "oklch(0.13 0.015 40)", border: "1px solid oklch(0.2 0.02 40)" }}>
+        <h2 className="text-sm font-semibold mb-3" style={{ color: "oklch(0.8 0.15 45)" }}>Etsy Keyword Research — bestseller di nicchia</h2>
+        <div className="flex gap-2 mb-3">
+          <input value={etsyQ} onChange={(e) => setEtsyQ(e.target.value)} placeholder="keyword nicchia (es. peter pan shirt)"
+            onKeyDown={(e) => { if (e.key === "Enter" && etsyQ.trim().length >= 2) etsyKw.mutate({ query: etsyQ.trim() }); }}
+            className="px-3 py-2 rounded-lg text-sm flex-1" style={{ background: "oklch(0.16 0.02 40)", border: "1px solid oklch(0.24 0.03 40)" }} />
+          <Button disabled={etsyKw.isPending || etsyQ.trim().length < 2} onClick={() => etsyKw.mutate({ query: etsyQ.trim() })}>{etsyKw.isPending ? "Ricerca…" : "Cerca"}</Button>
+        </div>
+        {etsyKw.isError && <div className="text-xs text-red-400 mb-2">{String(etsyKw.error?.message || "").includes("FIRECRAWL") ? "Manca FIRECRAWL_API_KEY sul server." : etsyKw.error?.message}</div>}
+        <div className="space-y-1">
+          {(etsyKw.data?.listings ?? []).map((l) => (
+            <a key={l.listingId} href={l.url} target="_blank" rel="noreferrer" className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm hover:bg-accent" style={{ background: "oklch(0.15 0.015 40)" }}>
+              {l.isBestseller && <Badge style={{ background: "oklch(0.65 0.2 145)" }}>BS</Badge>}
               <span className="flex-1 truncate">{l.title}</span>
-              <span className="text-muted-foreground text-xs whitespace-nowrap">{l.reviewCount.toLocaleString()} rec · ~{l.estLifetimeSales?.toLocaleString() ?? "?"} vendite · {l.currency} {l.price ?? "?"}</span>
+              <span className="text-muted-foreground text-xs whitespace-nowrap">{l.reviewCount.toLocaleString()} rec · {l.currency} {l.price ?? "?"}</span>
             </a>
           ))}
-          {etsy.data && etsy.data.listings.length === 0 && <div className="text-xs text-muted-foreground">Nessun risultato.</div>}
         </div>
-        <p className="text-[11px] text-muted-foreground mt-2">Vendite = stima da recensioni (calibrabile); reviews e badge Bestseller sono dati pubblici reali. Usa i vincitori come <b>validazione + ispirazione</b>: redesign e copy tuoi, mai copia.</p>
+        <p className="text-[11px] text-muted-foreground mt-2">Usa i vincitori come <b>validazione + ispirazione</b>: redesign e copy tuoi, mai copia.</p>
       </div>
 
       {/* Store competitor */}

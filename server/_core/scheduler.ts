@@ -2,6 +2,7 @@ import { refreshResearch } from "../researchService";
 import { refreshAllWatchlistChannels } from "../watchlistService";
 import { insertSocialChatMessage, getAllUserSettings } from "../db";
 import { runAllStoresCycle, enrichPendingMarketChanges } from "../marketIntelService";
+import { runAllEtsyShops } from "../etsyService";
 
 // Scheduler in-process (il server Railway è always-on): job giornalieri a orario
 // fisso italiano, indipendenti dai bottoni della UI e dal browser aperto.
@@ -97,5 +98,10 @@ export function registerDailySchedules() {
       text: `[SEO → PINTEREST DIGEST] Task settimanale: esegui il Task 5 della skill seo-research (in ~/.claude/skills/seo-research o claude-bot-workspace/skills). In sintesi: 1) GET $SOCIAL_BASE_URL/api/seo/research/items?source=pinterest&hours=168&min_target=6&limit=30 (header x-care-secret: $CARE_WEBHOOK_SECRET, env in ~/.social-agent.env); 2) leggi la pagina pubblica https://business.pinterest.com/it/pinterest-predicts/ per i temi annuali in nicchia; 3) aggiorna la nota Brain areas/marketing/social-media/pinterest-keywords-digest.md (repo ~/projects/dreambrothers-brain, poi git add/commit/push) con la tabella keyword in nicchia (indice /100, crescita, perché è nostra) e i temi Predicts; 4) rispondi in chat con le 3 keyword top della settimana. NON scrapare trends.pinterest.com/shopping o /search (richiedono login).`,
     }).catch((err) => console.warn("[Scheduler] pinterest digest handoff fallito:", err));
     console.log("[Scheduler] pinterest-digest: task settimanale inviato all'agente");
+  });
+
+  scheduleDaily(9, 45, "etsy-watchlist", async () => {
+    const r = await runAllEtsyShops(OWNER_USER_ID);
+    console.log(`[Scheduler] etsy 09:45: shops=${r.shops} listings=${r.listings} errori=${r.errors.length}`);
   });
 }

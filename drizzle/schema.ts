@@ -554,3 +554,51 @@ export const marketChanges = mysqlTable("market_changes", {
   enrichedAt: timestamp("enrichedAt"),
 });
 export type MarketChange = typeof marketChanges.$inferSelect;
+
+// ─── Etsy Product Research (metodo Alura: watchlist shop + vendite per-prodotto) ─
+export const etsyShops = mysqlTable("etsy_shops", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  shopName: varchar("shopName", { length: 191 }).notNull(),
+  url: text("url"),
+  status: mysqlEnum("status", ["pending", "active", "error", "paused"]).default("pending").notNull(),
+  lastTotalSales: int("lastTotalSales"),
+  lastReviewCount: int("lastReviewCount"),
+  reviewRate: decimal("reviewRate", { precision: 6, scale: 4 }), // reviews/sales calibrato
+  reviewAverage: decimal("reviewAverage", { precision: 3, scale: 2 }),
+  onEtsySinceYear: int("onEtsySinceYear"),
+  lastError: text("lastError"),
+  lastRefreshAt: timestamp("lastRefreshAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => [uniqueIndex("uq_etsy_shop").on(t.userId, t.shopName)]);
+export type EtsyShop = typeof etsyShops.$inferSelect;
+
+export const etsyShopSnapshots = mysqlTable("etsy_shop_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  shopId: int("shopId").notNull(),
+  totalSales: int("totalSales"),
+  reviewCount: int("reviewCount"),
+  capturedAt: timestamp("capturedAt").defaultNow().notNull(),
+});
+export type EtsyShopSnapshot = typeof etsyShopSnapshots.$inferSelect;
+
+export const etsyListings = mysqlTable("etsy_listings", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  shopId: int("shopId").notNull(),
+  listingId: varchar("listingId", { length: 32 }).notNull(),
+  title: text("title"),
+  url: text("url"),
+  price: decimal("price", { precision: 12, scale: 2 }),
+  currency: varchar("currency", { length: 8 }),
+  reviewCount: int("reviewCount").default(0).notNull(),
+  favorites: int("favorites"),
+  inCarts: int("inCarts"),
+  isBestseller: boolean("isBestseller").default(false).notNull(),
+  estSales: int("estSales"),
+  estRevenue: int("estRevenue"),
+  opportunityScore: int("opportunityScore"),
+  capturedAt: timestamp("capturedAt").defaultNow().notNull(),
+}, (t) => [uniqueIndex("uq_etsy_listing").on(t.shopId, t.listingId)]);
+export type EtsyListingRow = typeof etsyListings.$inferSelect;

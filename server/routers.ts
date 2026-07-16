@@ -44,7 +44,11 @@ import {
   runAllStoresCycle, runStoreMonitorCycle, getMarketConfig, saveMarketConfig, generateOpportunityBrief,
 } from "./marketIntelService";
 import { normalizeDomain, isShopifyStore } from "./marketIntel";
-import { researchEtsyKeyword, analyzeEtsyShop } from "./etsyIntel";
+import { researchEtsyKeyword } from "./etsyIntel";
+import {
+  addEtsyWatchShop, removeEtsyWatchShop, listEtsyWatchShops, refreshEtsyShop,
+  runAllEtsyShops, getEtsyShopDetail, analyzeEtsyShopLive,
+} from "./etsyService";
 
 function fmtClock(d: Date | string): string {
   return new Date(d).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome" });
@@ -117,11 +121,25 @@ export const appRouter = router({
     setConfig: protectedProcedure.input(z.object({ brandContext: z.string().optional(), autopilot: z.boolean().optional(), minScore: z.number().optional(), reviewRate: z.number().optional() }))
       .mutation(async ({ ctx, input }) => { await saveMarketConfig(ctx.user.id, input); return { success: true } as const; }),
     brief: protectedProcedure.input(z.object({ hours: z.number().optional() })).query(async ({ ctx, input }) => ({ brief: await generateOpportunityBrief(ctx.user.id, input.hours) })),
-    // Etsy Product Research (metodo Everbee/Alura via Firecrawl stealth)
+    // Etsy Product Research (metodo Alura calibrato via Firecrawl)
     etsyKeyword: protectedProcedure.input(z.object({ query: z.string().min(2), limit: z.number().min(1).max(60).optional() }))
       .mutation(async ({ input }) => researchEtsyKeyword(input.query, { limit: input.limit })),
-    etsyShop: protectedProcedure.input(z.object({ url: z.string().min(3) }))
-      .mutation(async ({ input }) => analyzeEtsyShop(input.url)),
+    // Analizzatore shop stile Alura (live): stats + top prodotti con vendite per-prodotto
+    etsyAnalyze: protectedProcedure.input(z.object({ shop: z.string().min(3), topN: z.number().min(1).max(24).optional() }))
+      .mutation(async ({ input }) => analyzeEtsyShopLive(input.shop, input.topN)),
+    // Watchlist shop Etsy (monitor automatico dell'AI agent)
+    etsyWatchList: protectedProcedure.query(async ({ ctx }) => listEtsyWatchShops(ctx.user.id)),
+    etsyWatchAdd: protectedProcedure.input(z.object({ shop: z.string().min(2) })).mutation(async ({ ctx, input }) => {
+      const r = await addEtsyWatchShop(ctx.user.id, input.shop); return { success: true, ...r } as const;
+    }),
+    etsyWatchRemove: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
+      await removeEtsyWatchShop(ctx.user.id, input.id); return { success: true } as const;
+    }),
+    etsyWatchRefresh: protectedProcedure.input(z.object({ id: z.number().optional() })).mutation(async ({ ctx, input }) => {
+      const r = input.id ? await refreshEtsyShop(ctx.user.id, input.id) : await runAllEtsyShops(ctx.user.id);
+      return { success: true, ...r } as const;
+    }),
+    etsyShopDetail: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ ctx, input }) => getEtsyShopDetail(ctx.user.id, input.id)),
   }),
 
   // ─── Social Organico: AI Manager chat + Bozze ───────────────────────────────

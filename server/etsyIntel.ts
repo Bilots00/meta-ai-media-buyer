@@ -1,17 +1,18 @@
 /**
- * Etsy Product Research — replica del metodo Everbee/Alura, ma nostro.
+ * Etsy Product Research — replica del metodo Alura/Everbee, VALIDATO.
  *
- * Perché diverso da Shopify: Etsy BLOCCA lo scraping diretto server-side (403 anti-bot).
- * Everbee/Alura sono estensioni Chrome perché girano nel browser reale dell'utente.
- * Noi usiamo Firecrawl (proxy "stealth" = browser reale + IP residenziale) come trasporto:
- * bypassa l'anti-bot e restituisce JSON strutturato. Dati SOLO pubblici (pagine shop/ricerca).
+ * Trasporto: Etsy blocca lo scraping diretto (403). Everbee/Alura sono estensioni Chrome
+ * perché girano nel browser reale. Noi usiamo Firecrawl (proxy anti-bot) come trasporto.
  *
- * Onestà sulle vendite (stessa regola del monitor Shopify): niente numeri inventati.
- * - `reviewCount` e i badge Bestseller/Star Seller sono FATTI pubblici (segnale forte, hard).
- * - La stima vendite lifetime = reviewCount / reviewRate è una STIMA calibrabile, etichettata come tale.
- * - Il ranking primario usa i segnali hard (reviewCount + Bestseller), non la stima.
+ * METODO VENDITE (validato dal vivo 2026-07-16 vs Alura, match <1 unità):
+ *   review_rate(shop) = shop_total_reviews / shop_total_sales      (entrambi PUBBLICI = esatti)
+ *   est_sales(listing) = listing_review_count / review_rate(shop)
+ *   Esempio: BabylonPrints rate = 5015/28040 = 17.88% → Peter Pan 4 review / 0.1788 = 22 (Alura: 23).
+ *   Proof indipendente: BoundlessInkPrints 675 review / 7041 vendite = 9.59% = review rate mostrato da Alura.
+ * Velocità vendite shop = Δ(contatore vendite pubblico) nel tempo = ESATTA (non stimata).
  */
 
+// ─── Tipi ─────────────────────────────────────────────────────────────────────
 export interface EtsyListing {
   listingId: string;
   title: string;
@@ -22,43 +23,70 @@ export interface EtsyListing {
   starRating: number | null;
   isBestseller: boolean;
   isStarSeller: boolean;
-  estLifetimeSales: number | null; // stima (reviewCount/reviewRate), etichettata
-  opportunityScore: number;        // 0-100, da segnali hard
+  favorites: number | null;
+  inCarts: number | null;
+  estSales: number | null;      // stima calibrata = reviewCount / reviewRate
+  estRevenue: number | null;    // estSales * price
+  estMethod: "calibrated" | "default-rate" | "none";
+  opportunityScore: number;
   url: string;
 }
 
 export interface EtsyShopStats {
   shopName: string;
-  totalSales: number | null;       // FATTO pubblico (conteggio vendite dello shop)
-  reviewCount: number | null;
+  totalSales: number | null;    // PUBBLICO / esatto
+  reviewCount: number | null;   // PUBBLICO / esatto
   reviewAverage: number | null;
   onEtsySinceYear: number | null;
-  avgMonthlySales: number | null;  // totalSales / mesi di attività (media storica)
+  reviewRate: number | null;    // reviewCount / totalSales (calibrazione per-shop)
+  avgMonthlySales: number | null;
 }
 
-/** "$68.60" -> {value:68.6,currency:"USD"}; "€12,00" -> {value:12,currency:"EUR"}. */
+export interface EtsyVelocity {
+  salesDelta: number | null;    // vendite ESATTE nel periodo (Δ contatore pubblico)
+  reviewsDelta: number | null;
+  days: number;
+  dailySales: number | null;
+  monthlySales: number | null;
+}
+
+// ─── Utility di parsing/stima (PURE, testate) ─────────────────────────────────
 export function parsePrice(s: unknown): { value: number | null; currency: string } {
   const str = String(s ?? "").trim();
   if (!str) return { value: null, currency: "USD" };
   const currency = str.includes("€") ? "EUR" : str.includes("£") ? "GBP" : "USD";
-  // rimuove simboli e separatori delle migliaia; gestisce virgola decimale EU
   let num = str.replace(/[^\d.,]/g, "");
-  if (num.includes(",") && num.includes(".")) num = num.replace(/,/g, "");        // 1,234.56
-  else if (num.includes(",") && !num.includes(".")) num = num.replace(",", "."); // 12,00
+  if (num.includes(",") && num.includes(".")) num = num.replace(/,/g, "");
+  else if (num.includes(",") && !num.includes(".")) num = num.replace(",", ".");
   const value = parseFloat(num);
   return { value: Number.isFinite(value) ? value : null, currency };
 }
 
-/** Stima vendite lifetime dai reviews: una frazione nota di acquirenti recensisce. */
+/** Calibrazione per-shop: quota di acquirenti che lascia recensione. Clamp difensivo. */
+export function computeReviewRate(totalReviews: number | null | undefined, totalSales: number | null | undefined): number | null {
+  const r = Number(totalReviews), s = Number(totalSales);
+  if (!Number.isFinite(r) || !Number.isFinite(s) || s <= 0 || r <= 0) return null;
+  const rate = r / s;
+  if (rate <= 0) return null;
+  return Math.min(0.9, Math.max(0.01, rate)); // rate plausibili 1%..90%
+}
+
+/** Stima vendite calibrata: metodo Alura. reviewRate deve venire dallo shop stesso. */
+export function estimateSalesCalibrated(reviewCount: number, reviewRate: number | null): number | null {
+  if (!Number.isFinite(reviewCount) || reviewCount <= 0) return reviewCount === 0 ? 0 : null;
+  if (!reviewRate || reviewRate <= 0) return null;
+  return Math.round(reviewCount / reviewRate);
+}
+
+/** Fallback quando non conosciamo la review rate dello shop (ricerca cross-shop). */
 export function estimateLifetimeSalesFromReviews(reviewCount: number, reviewRate = 0.10): number | null {
   if (!Number.isFinite(reviewCount) || reviewCount <= 0) return null;
   const rate = reviewRate > 0 ? reviewRate : 0.10;
   return Math.round(reviewCount / rate);
 }
 
-/** Punteggio opportunità 0-100 da segnali HARD (reviewCount, Bestseller, rating). Niente stime. */
 export function scoreEtsyOpportunity(l: { reviewCount: number; isBestseller: boolean; isStarSeller: boolean; starRating: number | null }): number {
-  const reviewScore = Math.min(1, Math.log10((l.reviewCount || 0) + 1) / Math.log10(50000)); // 50k rec ~ tetto
+  const reviewScore = Math.min(1, Math.log10((l.reviewCount || 0) + 1) / Math.log10(50000));
   const bestseller = l.isBestseller ? 1 : 0;
   const starSeller = l.isStarSeller ? 1 : 0;
   const ratingScore = l.starRating != null ? Math.max(0, Math.min(1, (l.starRating - 4) / 1)) : 0.5;
@@ -69,15 +97,20 @@ export function scoreEtsyOpportunity(l: { reviewCount: number; isBestseller: boo
 interface RawListing {
   listingId?: string | number; title?: string; price?: string; shopName?: string;
   reviewCount?: number; starRating?: number; isBestseller?: boolean; isStarSeller?: boolean;
+  favorites?: number; inCarts?: number;
 }
 
-export function normalizeEtsyListing(raw: RawListing, reviewRate = 0.10): EtsyListing {
+/** Normalizza un listing. Se reviewRate è nota (shop analizzato) usa il metodo calibrato. */
+export function normalizeEtsyListing(raw: RawListing, reviewRate: number | null = null): EtsyListing {
   const reviewCount = Number(raw.reviewCount ?? 0) || 0;
   const { value, currency } = parsePrice(raw.price);
   const isBestseller = !!raw.isBestseller;
   const isStarSeller = !!raw.isStarSeller;
   const starRating = raw.starRating != null ? Number(raw.starRating) : null;
   const listingId = String(raw.listingId ?? "");
+  const calibrated = reviewRate ? estimateSalesCalibrated(reviewCount, reviewRate) : null;
+  const estSales = calibrated != null ? calibrated : estimateLifetimeSalesFromReviews(reviewCount);
+  const estMethod: EtsyListing["estMethod"] = reviewRate ? "calibrated" : (estSales != null ? "default-rate" : "none");
   return {
     listingId,
     title: String(raw.title ?? "").slice(0, 400),
@@ -88,98 +121,166 @@ export function normalizeEtsyListing(raw: RawListing, reviewRate = 0.10): EtsyLi
     starRating,
     isBestseller,
     isStarSeller,
-    estLifetimeSales: estimateLifetimeSalesFromReviews(reviewCount, reviewRate),
+    favorites: raw.favorites != null ? Number(raw.favorites) : null,
+    inCarts: raw.inCarts != null ? Number(raw.inCarts) : null,
+    estSales,
+    estRevenue: estSales != null && value != null ? Math.round(estSales * value) : null,
+    estMethod,
     opportunityScore: scoreEtsyOpportunity({ reviewCount, isBestseller, isStarSeller, starRating }),
     url: listingId ? `https://www.etsy.com/listing/${listingId}/` : "https://www.etsy.com",
   };
 }
 
-/** Normalizza + ordina per opportunità (segnali hard). */
-export function rankEtsyListings(rawListings: RawListing[], reviewRate = 0.10): EtsyListing[] {
+export function rankEtsyListings(rawListings: RawListing[], reviewRate: number | null = null): EtsyListing[] {
   return rawListings
     .map((r) => normalizeEtsyListing(r, reviewRate))
     .filter((l) => l.listingId || l.title)
-    .sort((a, b) => b.opportunityScore - a.opportunityScore || b.reviewCount - a.reviewCount);
+    .sort((a, b) => (b.estSales ?? -1) - (a.estSales ?? -1) || b.reviewCount - a.reviewCount);
 }
 
 export function normalizeEtsyShop(raw: Record<string, unknown>): EtsyShopStats {
   const yr = Number(raw.onEtsySince ?? raw.onEtsySinceYear ?? 0);
   const onEtsySinceYear = yr > 1900 && yr < 2100 ? yr : null;
   const totalSales = raw.totalSales != null ? Number(raw.totalSales) : null;
-  // mesi di attività dallo storico shop (approssimazione media, non mensile puntuale)
+  const reviewCount = (raw.reviewCount ?? raw.totalReviews) != null ? Number(raw.reviewCount ?? raw.totalReviews) : null;
+  const reviewRate = computeReviewRate(reviewCount, totalSales);
   const nowYear = 2026;
   const months = onEtsySinceYear ? Math.max(1, (nowYear - onEtsySinceYear) * 12) : null;
   const avgMonthlySales = totalSales != null && months ? Math.round(totalSales / months) : null;
   return {
     shopName: String(raw.shopName ?? ""),
     totalSales: totalSales != null && Number.isFinite(totalSales) ? totalSales : null,
-    reviewCount: raw.reviewCount != null ? Number(raw.reviewCount) : null,
+    reviewCount: reviewCount != null && Number.isFinite(reviewCount) ? reviewCount : null,
     reviewAverage: raw.reviewAverage != null ? Number(raw.reviewAverage) : null,
     onEtsySinceYear,
+    reviewRate,
     avgMonthlySales,
   };
 }
 
-// ─── Trasporto: Firecrawl (stealth) — bypassa l'anti-bot di Etsy ──────────────
+/** Velocità vendite ESATTA fra due snapshot del contatore pubblico. */
+export function computeEtsyVelocity(prev: { totalSales: number | null; reviewCount: number | null; at: Date | string } | null, curr: { totalSales: number | null; reviewCount: number | null; at: Date | string }): EtsyVelocity {
+  if (!prev || prev.totalSales == null || curr.totalSales == null) {
+    return { salesDelta: null, reviewsDelta: null, days: 0, dailySales: null, monthlySales: null };
+  }
+  const ms = new Date(curr.at).getTime() - new Date(prev.at).getTime();
+  const days = Math.max(ms / 86400000, 0);
+  const salesDelta = Math.max(0, curr.totalSales - prev.totalSales);
+  const reviewsDelta = prev.reviewCount != null && curr.reviewCount != null ? Math.max(0, curr.reviewCount - prev.reviewCount) : null;
+  const dailySales = days > 0 ? salesDelta / days : null;
+  return { salesDelta, reviewsDelta, days: Math.round(days * 10) / 10, dailySales, monthlySales: dailySales != null ? Math.round(dailySales * 30) : null };
+}
+
+// ─── Trasporto: Firecrawl v2 (formato corretto: formats:[{type:"json",...}]) ──
 const FIRECRAWL_BASE = process.env.FIRECRAWL_API_URL || "https://api.firecrawl.dev/v2";
 
 async function firecrawlScrapeJson(url: string, prompt: string, schema: unknown): Promise<any | null> {
   const key = process.env.FIRECRAWL_API_KEY;
-  if (!key) throw new Error("FIRECRAWL_API_KEY non configurata (serve per lo scraping Etsy)");
+  if (!key) throw new Error("FIRECRAWL_API_KEY non configurata sul server (Railway → Variables).");
+  const proxy = process.env.FIRECRAWL_PROXY || "auto"; // basic|enhanced|auto (v2); Etsy richiede enhanced/auto
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 60000);
+  const timer = setTimeout(() => ctrl.abort(), 90000);
   try {
     const r = await fetch(`${FIRECRAWL_BASE}/scrape`, {
       method: "POST",
-      headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ url, formats: ["json"], proxy: "stealth", waitFor: 3500, jsonOptions: { prompt, schema } }),
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ url, formats: [{ type: "json", prompt, schema }], proxy, waitFor: 4000 }),
       signal: ctrl.signal,
     });
-    if (!r.ok) throw new Error(`Firecrawl HTTP ${r.status}`);
-    const body = await r.json();
-    return body?.data?.json ?? null;
+    const text = await r.text();
+    if (!r.ok) {
+      let detail: unknown = text.slice(0, 400);
+      try { const j = JSON.parse(text); detail = j.error || j.details || j.message || detail; } catch { /* keep text */ }
+      throw new Error(`Firecrawl HTTP ${r.status}: ${typeof detail === "string" ? detail : JSON.stringify(detail)}`);
+    }
+    return JSON.parse(text)?.data?.json ?? null;
   } finally {
     clearTimeout(timer);
   }
 }
 
-const SEARCH_SCHEMA = {
-  type: "object",
-  properties: {
-    listings: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          title: { type: "string" }, price: { type: "string" }, shopName: { type: "string" },
-          listingId: { type: "string" }, reviewCount: { type: "integer" }, starRating: { type: "number" },
-          isBestseller: { type: "boolean" }, isStarSeller: { type: "boolean" },
-        },
-      },
-    },
-  },
-};
-
-const SHOP_SCHEMA = {
-  type: "object",
-  properties: {
-    shopName: { type: "string" }, totalSales: { type: "integer" }, reviewCount: { type: "integer" },
-    reviewAverage: { type: "number" }, onEtsySince: { type: "integer", description: "anno di apertura (4 cifre)" },
-  },
-};
-
-/** Ricerca per keyword: i bestseller di una nicchia su Etsy, con stima e ranking. */
-export async function researchEtsyKeyword(query: string, opts: { limit?: number; reviewRate?: number } = {}): Promise<{ query: string; listings: EtsyListing[] }> {
-  const url = `https://www.etsy.com/search?q=${encodeURIComponent(query)}`;
-  const json = await firecrawlScrapeJson(url, "Estrai i listing dalla pagina risultati di ricerca Etsy per ricerca prodotto competitiva.", SEARCH_SCHEMA);
-  const raw: RawListing[] = Array.isArray(json?.listings) ? json.listings : [];
-  const listings = rankEtsyListings(raw, opts.reviewRate).slice(0, opts.limit ?? 30);
-  return { query, listings };
+async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T, i: number) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let idx = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (idx < items.length) { const i = idx++; out[i] = await fn(items[i], i); }
+  });
+  await Promise.all(workers);
+  return out;
 }
 
-/** Analisi di uno shop competitor: vendite totali (fatto), reviews, media mensile storica. */
-export async function analyzeEtsyShop(shopUrl: string): Promise<EtsyShopStats> {
-  const url = shopUrl.startsWith("http") ? shopUrl : `https://www.etsy.com/shop/${shopUrl}`;
-  const json = await firecrawlScrapeJson(url, "Estrai i dati di competitive-intelligence dello shop Etsy.", SHOP_SCHEMA);
+// ─── Schemi estrazione ────────────────────────────────────────────────────────
+const SHOP_SCHEMA = { type: "object", properties: {
+  shopName: { type: "string" }, totalSales: { type: "integer", description: "big 'X Sales' number" },
+  totalReviews: { type: "integer", description: "count next to shop stars" }, reviewAverage: { type: "number" },
+  onEtsySince: { type: "integer", description: "opening year, 4 digits" },
+} };
+const SHOP_GRID_SCHEMA = { type: "object", properties: { listings: { type: "array", items: { type: "object", properties: {
+  title: { type: "string" }, price: { type: "string" }, listingId: { type: "string" }, isBestseller: { type: "boolean" },
+} } } } };
+const LISTING_SCHEMA = { type: "object", properties: {
+  title: { type: "string" }, price: { type: "string" }, shopName: { type: "string" },
+  itemReviewCount: { type: "integer", description: "reviews for THIS item only" },
+  favorites: { type: "integer" }, inCarts: { type: "integer" }, isBestseller: { type: "boolean" },
+} };
+const SEARCH_SCHEMA = { type: "object", properties: { listings: { type: "array", items: { type: "object", properties: {
+  title: { type: "string" }, price: { type: "string" }, shopName: { type: "string" }, listingId: { type: "string" },
+  reviewCount: { type: "integer" }, starRating: { type: "number" }, isBestseller: { type: "boolean" }, isStarSeller: { type: "boolean" },
+} } } } };
+
+function shopUrlFrom(input: string): { url: string; slug: string } {
+  const s = String(input).trim();
+  const m = s.match(/etsy\.com\/shop\/([A-Za-z0-9_-]+)/i);
+  const slug = m ? m[1] : s.replace(/^@/, "").split("/")[0];
+  return { url: `https://www.etsy.com/shop/${slug}`, slug };
+}
+
+// ─── API di alto livello ──────────────────────────────────────────────────────
+export async function analyzeEtsyShop(shopInput: string): Promise<EtsyShopStats> {
+  const { url } = shopUrlFrom(shopInput);
+  const json = await firecrawlScrapeJson(url, "Etsy shop page. Extract shop total sales count, total review count, review average, and opening year.", SHOP_SCHEMA);
   return normalizeEtsyShop(json ?? {});
+}
+
+/** Analisi accurata di un singolo listing (metodo Alura per-prodotto). */
+export async function analyzeEtsyListing(listingUrl: string, reviewRate: number | null = null): Promise<EtsyListing> {
+  const json = await firecrawlScrapeJson(listingUrl, "Single Etsy listing page. Extract this item's own review count (next to the ITEM star rating, not the shop total), price, shop name, favorites, 'in X carts', and bestseller badge.", LISTING_SCHEMA);
+  const idm = listingUrl.match(/\/listing\/(\d+)/);
+  return normalizeEtsyListing({
+    listingId: idm ? idm[1] : "", title: json?.title, price: json?.price, shopName: json?.shopName,
+    reviewCount: json?.itemReviewCount, favorites: json?.favorites, inCarts: json?.inCarts, isBestseller: json?.isBestseller,
+  }, reviewRate);
+}
+
+/**
+ * Analizzatore shop stile Alura: stats shop (rate calibrata) + i top-N listing con
+ * vendite per-prodotto (deep-scrape delle singole pagine listing = review count accurato).
+ */
+export async function analyzeEtsyShopListings(shopInput: string, opts: { topN?: number } = {}): Promise<{ shop: EtsyShopStats; listings: EtsyListing[] }> {
+  const { url, slug } = shopUrlFrom(shopInput);
+  const topN = Math.min(opts.topN ?? 12, 24);
+  // 1) stats shop (rate)
+  const shopJson = await firecrawlScrapeJson(url, "Etsy shop page. Extract total sales, total reviews, review average, opening year.", SHOP_SCHEMA);
+  const shop = normalizeEtsyShop(shopJson ?? {});
+  // 2) griglia items → id + titoli (i card non espongono review count, li prendiamo dalle pagine)
+  const gridJson = await firecrawlScrapeJson(url, "Etsy shop items grid. For each product card extract title, price, listingId from the /listing/<id>/ link. Return up to 24 items.", SHOP_GRID_SCHEMA);
+  const grid: RawListing[] = Array.isArray(gridJson?.listings) ? gridJson.listings : [];
+  const seen = new Set<string>();
+  const ids = grid.map((g) => String(g.listingId ?? "")).filter((id) => id && !seen.has(id) && seen.add(id)).slice(0, topN);
+  // 3) deep-scrape dei singoli listing per il review count reale → vendite calibrate
+  const listings = (await mapLimit(ids, 3, async (id) => {
+    try { return await analyzeEtsyListing(`https://www.etsy.com/listing/${id}/`, shop.reviewRate); }
+    catch { return null; }
+  })).filter((l): l is EtsyListing => !!l);
+  listings.sort((a, b) => (b.estSales ?? -1) - (a.estSales ?? -1));
+  return { shop: { ...shop, shopName: shop.shopName || slug }, listings };
+}
+
+/** Ricerca per keyword (cross-shop): bestseller di una nicchia. Rate default (non calibrabile per-shop). */
+export async function researchEtsyKeyword(query: string, opts: { limit?: number } = {}): Promise<{ query: string; listings: EtsyListing[] }> {
+  const url = `https://www.etsy.com/search?q=${encodeURIComponent(query)}`;
+  const json = await firecrawlScrapeJson(url, "Etsy search results page. Extract each listing: title, price, shopName, listingId, reviewCount, starRating, bestseller and star-seller badges.", SEARCH_SCHEMA);
+  const raw: RawListing[] = Array.isArray(json?.listings) ? json.listings : [];
+  const listings = rankEtsyListings(raw, null).slice(0, opts.limit ?? 30);
+  return { query, listings };
 }
