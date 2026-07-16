@@ -729,6 +729,8 @@ export interface ResearchFilters {
   minTarget?: number;
   search?: string;
   limit?: number;
+  // best = punteggio combinato (viralità + 1.5×target + 1.2×interesse)
+  sort?: "best" | "virality" | "target" | "interest" | "engagement" | "recent";
 }
 
 export async function getResearchItems(userId: number, f: ResearchFilters = {}) {
@@ -745,9 +747,19 @@ export async function getResearchItems(userId: number, f: ResearchFilters = {}) 
   if (f.minVirality && f.minVirality > 0) conds.push(gte(researchItems.viralityScore, f.minVirality));
   if (f.minTarget && f.minTarget > 0) conds.push(gte(researchItems.targetScore, f.minTarget));
   if (f.search) conds.push(sql`${researchItems.title} LIKE ${`%${f.search}%`}`);
+  // "best" = miglior rapporto combinato: il target pesa più di tutto (lezione
+  // anti-traffico-freddo), poi interesse, poi viralità
+  const combined = sql`(${researchItems.viralityScore} + COALESCE(${researchItems.targetScore}, 0) * 1.5 + COALESCE(${researchItems.interestScore}, 0) * 1.2)`;
+  const orderBy =
+    f.sort === "virality" ? [desc(researchItems.viralityScore)]
+    : f.sort === "target" ? [desc(sql`COALESCE(${researchItems.targetScore}, -1)`)]
+    : f.sort === "interest" ? [desc(sql`COALESCE(${researchItems.interestScore}, -1)`)]
+    : f.sort === "engagement" ? [desc(researchItems.engagement)]
+    : f.sort === "recent" ? [desc(researchItems.publishedAt)]
+    : [desc(combined)];
   return db.select().from(researchItems)
     .where(and(...conds))
-    .orderBy(desc(researchItems.viralityScore), desc(researchItems.publishedAt))
+    .orderBy(...orderBy, desc(researchItems.publishedAt))
     .limit(Math.min(f.limit ?? 100, 300));
 }
 

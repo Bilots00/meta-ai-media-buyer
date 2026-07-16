@@ -17,8 +17,9 @@
 import { createHash } from "crypto";
 import { AXIOS_TIMEOUT_MS } from "@shared/const";
 import { invokeLLM } from "./_core/llm";
+import { apifyRunSync, hasApifyToken } from "./watchlist";
 
-export type ResearchSource = "reddit" | "news" | "trends" | "substack" | "gmail" | "manual";
+export type ResearchSource = "reddit" | "news" | "trends" | "substack" | "pinterest" | "gmail" | "manual";
 
 export interface FetchedResearchItem {
   source: ResearchSource;
@@ -37,6 +38,8 @@ export interface ResearchSourcesConfig {
   newsQueries: string[];
   substacks: string[];
   trendsGeo: string;
+  // ID interessi di trends.pinterest.com (?topicInterestIds=...), opzionali
+  pinterestInterestIds: string[];
 }
 
 export const DEFAULT_SOURCES: ResearchSourcesConfig = {
@@ -44,6 +47,7 @@ export const DEFAULT_SOURCES: ResearchSourcesConfig = {
   newsQueries: ["crescita personale motivazione", "home decor tendenze", "print on demand ecommerce"],
   substacks: [],
   trendsGeo: "IT",
+  pinterestInterestIds: [],
 };
 
 export const DEFAULT_BRAND_CONTEXT =
@@ -141,9 +145,63 @@ async function httpGetText(url: string): Promise<string> {
 }
 
 // ─── Fetcher per fonte ────────────────────────────────────────────────────────
+// Reddit OAuth (API ufficiale gratuita): con REDDIT_CLIENT_ID + REDDIT_CLIENT_SECRET
+// nelle env si ottengono punteggi/commenti REALI (colonna ENG). Senza credenziali
+// si ripiega sul feed .rss, che dal 2023 non espone più i contatori.
+let _redditToken: { token: string; exp: number } | null = null;
+
+async function redditOAuthToken(): Promise<string | null> {
+  const id = process.env.REDDIT_CLIENT_ID;
+  const secret = process.env.REDDIT_CLIENT_SECRET;
+  if (!id || !secret) return null;
+  if (_redditToken && Date.now() < _redditToken.exp - 60_000) return _redditToken.token;
+  const res = await fetch("https://www.reddit.com/api/v1/access_token", {
+    method: "POST",
+    headers: {
+      Authorization: "Basic " + Buffer.from(`${id}:${secret}`).toString("base64"),
+      "Content-Type": "application/x-www-form-urlencoded",
+      "User-Agent": "web:dreambrothers-research:1.0 (by /u/dreambrothers)",
+    },
+    body: "grant_type=client_credentials",
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!res.ok) throw new Error(`Reddit OAuth: HTTP ${res.status}`);
+  const j = (await res.json()) as { access_token?: string; expires_in?: number };
+  if (!j.access_token) return null;
+  _redditToken = { token: j.access_token, exp: Date.now() + (j.expires_in ?? 3600) * 1000 };
+  return j.access_token;
+}
+
+async function fetchRedditOAuth(subreddit: string, token: string, limit: number): Promise<FetchedResearchItem[]> {
+  const res = await fetch(`https://oauth.reddit.com/r/${encodeURIComponent(subreddit)}/top?t=day&limit=${limit}&raw_json=1`, {
+    headers: { Authorization: `Bearer ${token}`, "User-Agent": "web:dreambrothers-research:1.0 (by /u/dreambrothers)" },
+    signal: AbortSignal.timeout(AXIOS_TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(`Reddit OAuth r/${subreddit}: HTTP ${res.status}`);
+  const json = (await res.json()) as { data?: { children?: Array<{ data: any }> } };
+  return (json.data?.children ?? []).map(({ data: d }) => {
+    const engagement = Number(d.score ?? 0) + 2 * Number(d.num_comments ?? 0);
+    return {
+      source: "reddit" as const,
+      sourceDetail: `r/${subreddit}`,
+      title: String(d.title ?? "").slice(0, 500),
+      url: `https://www.reddit.com${d.permalink}`,
+      excerpt: String(d.selftext ?? "").slice(0, 1500) || undefined,
+      viralityScore: viralityFromEngagement(engagement),
+      engagement,
+      publishedAt: d.created_utc ? new Date(Number(d.created_utc) * 1000) : undefined,
+    };
+  }).filter((i) => i.title);
+}
+
 export async function fetchReddit(subreddit: string, limit = 20): Promise<FetchedResearchItem[]> {
-  // Gli endpoint .json di Reddit sono 403 senza OAuth; il feed .rss (Atom) è aperto.
-  // Il feed "top of the day" non espone i punteggi → viralità implicita dal rank.
+  // 1° scelta: API ufficiale OAuth (punteggi reali). Fallback: feed .rss senza contatori.
+  try {
+    const token = await redditOAuthToken();
+    if (token) return await fetchRedditOAuth(subreddit, token, limit);
+  } catch (err) {
+    console.warn(`[research] Reddit OAuth fallito per r/${subreddit}, uso .rss:`, err instanceof Error ? err.message : err);
+  }
   const url = `https://www.reddit.com/r/${encodeURIComponent(subreddit)}/top/.rss?t=day&limit=${limit}`;
   const res = await fetch(url, {
     headers: { "User-Agent": BROWSER_UA, Accept: "application/atom+xml, application/xml, */*" },
@@ -200,6 +258,42 @@ export async function fetchGoogleTrends(geo = "IT"): Promise<FetchedResearchItem
   });
 }
 
+/**
+ * Pinterest Trends via Apify (automation-lab/pinterest-trends-scraper):
+ * keyword in crescita con volume di ricerca, growth % e stagionalità — la base
+ * per articoli SEO con keyword ad alto volume. Testato: 15 trend IT in ~4s.
+ */
+export async function fetchPinterestTrends(country: string, interestIds: string[] = [], max = 25): Promise<FetchedResearchItem[]> {
+  type PinTrend = {
+    term?: string; rank?: number; searchCount?: number; normalizedCount?: number;
+    weeklyChange?: number; monthlyChange?: number; yearlyChange?: number;
+    seasonalityScore?: number; trendType?: string; pinterestTrendsUrl?: string;
+  };
+  const input: Record<string, unknown> = { countries: [country], maxResultsPerCountry: max, trendTypes: ["growing"] };
+  if (interestIds.length) input.interestIds = interestIds;
+  const items = await apifyRunSync<PinTrend>("automation-lab~pinterest-trends-scraper", input);
+  return items.filter((i) => i.term).map((i) => {
+    const rank = Number(i.rank ?? 99);
+    const parts = [
+      `Keyword in crescita su Pinterest ${country}: rank #${rank}`,
+      i.searchCount != null ? `search score ${i.searchCount}` : "",
+      i.weeklyChange != null ? `+${i.weeklyChange}% settimana` : "",
+      i.monthlyChange != null ? `+${i.monthlyChange}% mese` : "",
+      i.seasonalityScore != null ? `stagionalità ${i.seasonalityScore}` : "",
+    ].filter(Boolean);
+    return {
+      source: "pinterest" as const,
+      sourceDetail: `Pinterest Trends ${country}`,
+      title: i.term!,
+      url: i.pinterestTrendsUrl ?? `https://trends.pinterest.com/detail/?terms=${encodeURIComponent(i.term!)}&country=${country}`,
+      excerpt: parts.join(" · "),
+      viralityScore: rank <= 3 ? 9 : rank <= 8 ? 8 : rank <= 15 ? 7 : 6,
+      engagement: Math.round(Number(i.searchCount ?? i.normalizedCount ?? 0)),
+      publishedAt: new Date(),
+    };
+  });
+}
+
 export async function fetchSubstack(publication: string): Promise<FetchedResearchItem[]> {
   const host = publication.includes(".") ? publication : `${publication}.substack.com`;
   const xml = await httpGetText(`https://${host}/feed`);
@@ -240,6 +334,10 @@ export async function fetchAllResearchSources(cfg: ResearchSourcesConfig): Promi
   const otherJobs: Array<{ name: string; run: () => Promise<FetchedResearchItem[]> }> = [
     ...cfg.newsQueries.map((q) => ({ name: `news "${q}"`, run: () => fetchGoogleNews(q) })),
     ...geos.map((g) => ({ name: `trends ${g}`, run: () => fetchGoogleTrends(g) })),
+    // Pinterest Trends (Apify): keyword ad alto volume per gli articoli SEO
+    ...(hasApifyToken()
+      ? geos.map((g) => ({ name: `pinterest ${g}`, run: () => fetchPinterestTrends(g, cfg.pinterestInterestIds) }))
+      : [{ name: "pinterest", run: async (): Promise<FetchedResearchItem[]> => { throw new Error("APIFY_TOKEN mancante nelle env"); } }]),
     ...cfg.substacks.map((p) => ({ name: `substack ${p}`, run: () => fetchSubstack(p) })),
   ];
   const results = await Promise.allSettled(otherJobs.map((j) => j.run()));

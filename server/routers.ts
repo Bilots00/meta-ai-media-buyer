@@ -254,6 +254,7 @@ export const appRouter = router({
         minTarget: z.number().min(0).max(10).default(0),
         search: z.string().optional(),
         limit: z.number().min(1).max(300).default(100),
+        sort: z.enum(["best", "virality", "target", "interest", "engagement", "recent"]).default("best"),
       }))
       .query(async ({ ctx, input }) => {
         return getResearchItems(ctx.user.id, input);
@@ -310,6 +311,7 @@ export const appRouter = router({
           newsQueries: z.array(z.string()),
           substacks: z.array(z.string()),
           trendsGeo: z.string(),
+          pinterestInterestIds: z.array(z.string()).default([]),
         }).optional(),
         brandContext: z.string().optional(),
         autopilot: z.boolean().optional(),

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   Newspaper, RefreshCw, ExternalLink, Sparkles, Settings2, Search,
-  Trash2, Bookmark, FileText, X as XIcon, TrendingUp, MessageSquare, Mail, Rss,
+  Trash2, Bookmark, FileText, X as XIcon, TrendingUp, MessageSquare, Mail, Rss, Pin, ArrowDownWideNarrow,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -14,6 +14,7 @@ const SOURCE_META: Record<string, { label: string; color: string; icon: typeof R
   news: { label: "News", color: "oklch(0.65 0.18 250)", icon: Newspaper },
   trends: { label: "Trends", color: "oklch(0.7 0.16 150)", icon: TrendingUp },
   substack: { label: "Substack", color: "oklch(0.7 0.17 60)", icon: Rss },
+  pinterest: { label: "Pinterest", color: "oklch(0.58 0.22 20)", icon: Pin },
   gmail: { label: "Gmail", color: "oklch(0.62 0.2 25)", icon: Mail },
   manual: { label: "Manuale", color: "oklch(0.6 0.02 260)", icon: FileText },
 };
@@ -50,6 +51,7 @@ export default function SeoResearch() {
   const [source, setSource] = useState("all");
   const [status, setStatus] = useState("all");
   const [minVirality, setMinVirality] = useState("0");
+  const [sort, setSort] = useState<"best" | "virality" | "target" | "interest" | "engagement" | "recent">("best");
   const [search, setSearch] = useState("");
   const [openId, setOpenId] = useState<number | null>(null);
   const [showConfig, setShowConfig] = useState(false);
@@ -61,6 +63,7 @@ export default function SeoResearch() {
     minVirality: Number(minVirality),
     search: search.trim() || undefined,
     limit: 150,
+    sort,
   };
   const items = trpc.research.list.useQuery(listInput, { refetchInterval: 120000 });
   const config = trpc.research.getConfig.useQuery(undefined, { enabled: showConfig });
@@ -112,7 +115,7 @@ export default function SeoResearch() {
   const list = items.data ?? [];
   const openItem = useMemo(() => list.find((i) => i.id === openId) ?? null, [list, openId]);
 
-  const [cfgForm, setCfgForm] = useState<{ subreddits: string; newsQueries: string; substacks: string; trendsGeo: string; brandContext: string; autopilot: boolean } | null>(null);
+  const [cfgForm, setCfgForm] = useState<{ subreddits: string; newsQueries: string; substacks: string; trendsGeo: string; pinterestInterestIds: string; brandContext: string; autopilot: boolean } | null>(null);
   const cfgReady = config.data && !cfgForm && showConfig;
   if (cfgReady) {
     setCfgForm({
@@ -120,6 +123,7 @@ export default function SeoResearch() {
       newsQueries: config.data!.sources.newsQueries.join("\n"),
       substacks: config.data!.sources.substacks.join("\n"),
       trendsGeo: config.data!.sources.trendsGeo,
+      pinterestInterestIds: (config.data!.sources.pinterestInterestIds ?? []).join("\n"),
       brandContext: config.data!.brandContext,
       autopilot: config.data!.autopilot,
     });
@@ -189,6 +193,19 @@ export default function SeoResearch() {
             <SelectItem value="0">Ogni viralità</SelectItem>
             <SelectItem value="7">Virali (7+)</SelectItem>
             <SelectItem value="9">Top virali (9+)</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={sort} onValueChange={(v) => setSort(v as typeof sort)}>
+          <SelectTrigger className="w-[190px] h-8 text-xs">
+            <ArrowDownWideNarrow className="w-3.5 h-3.5 mr-1 shrink-0" /><SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="best">⭐ Punteggio combinato</SelectItem>
+            <SelectItem value="virality">Viralità (VIR)</SelectItem>
+            <SelectItem value="target">In target (TARG)</SelectItem>
+            <SelectItem value="interest">Interesse (INT)</SelectItem>
+            <SelectItem value="engagement">Engagement (ENG)</SelectItem>
+            <SelectItem value="recent">Più recenti</SelectItem>
           </SelectContent>
         </Select>
         <span className="ml-auto text-xs text-muted-foreground px-2">{list.length} contenuti</span>
@@ -345,9 +362,14 @@ export default function SeoResearch() {
                     className="text-sm" style={{ background: "oklch(0.16 0.015 260)", border: "1px solid oklch(0.22 0.015 260)" }} />
                 </div>
                 <div>
-                  <p className="text-xs font-semibold mb-1">Geo Google Trends — anche più paesi separati da virgola (es. IT, US, DE)</p>
+                  <p className="text-xs font-semibold mb-1">Geo Trends (Google + Pinterest) — anche più paesi separati da virgola (es. IT, US, DE)</p>
                   <input value={cfgForm.trendsGeo} onChange={(e) => setCfgForm((f) => f && ({ ...f, trendsGeo: e.target.value.toUpperCase().slice(0, 40) }))}
                     placeholder="IT, US" className="w-48 text-sm rounded-lg px-3 py-2 bg-transparent text-foreground" style={{ border: "1px solid oklch(0.22 0.015 260)" }} />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold mb-1">Pinterest: ID interessi/topic (opzionale, uno per riga — da trends.pinterest.com ?topicInterestIds=...)</p>
+                  <Textarea rows={2} value={cfgForm.pinterestInterestIds} onChange={(e) => setCfgForm((f) => f && ({ ...f, pinterestInterestIds: e.target.value }))}
+                    placeholder="961238559656" className="text-sm" style={{ background: "oklch(0.16 0.015 260)", border: "1px solid oklch(0.22 0.015 260)" }} />
                 </div>
                 <div>
                   <p className="text-xs font-semibold mb-1">Contesto brand per i punteggi AI (buyer persona, valori, TOV)</p>
@@ -370,6 +392,7 @@ export default function SeoResearch() {
                         newsQueries: splitLines(cfgForm.newsQueries),
                         substacks: splitLines(cfgForm.substacks),
                         trendsGeo: cfgForm.trendsGeo || "IT",
+                        pinterestInterestIds: splitLines(cfgForm.pinterestInterestIds),
                       },
                       brandContext: cfgForm.brandContext,
                       autopilot: cfgForm.autopilot,
