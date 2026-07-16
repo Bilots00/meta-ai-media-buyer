@@ -642,6 +642,48 @@ export const mcCampaignState = mysqlTable("mc_campaign_state", {
 }, (t) => [uniqueIndex("uq_mc_campaign").on(t.campaignId)]);
 export type McCampaignState = typeof mcCampaignState.$inferSelect;
 
+// ─── Ads Inspiration (replica CreativeOS: templates / inspiration / brands) ────
+export const adBrands = mysqlTable("ad_brands", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  name: varchar("name", { length: 191 }).notNull(),
+  pageId: varchar("pageId", { length: 64 }).notNull(), // Facebook Page ID (Ads Library)
+  category: varchar("category", { length: 64 }),
+  logoUrl: text("logoUrl"),
+  status: varchar("status", { length: 16 }).default("pending").notNull(), // pending|active|error
+  lastError: text("lastError"),
+  adCount: int("adCount").default(0).notNull(),
+  lastRefreshAt: timestamp("lastRefreshAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => [uniqueIndex("uq_ad_brand").on(t.userId, t.pageId)]);
+export type AdBrand = typeof adBrands.$inferSelect;
+
+export const adInspirations = mysqlTable("ad_inspirations", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  brandId: int("brandId"),
+  source: varchar("source", { length: 24 }).default("fb_ads_library").notNull(),
+  adArchiveId: varchar("adArchiveId", { length: 64 }).notNull(),
+  pageName: varchar("pageName", { length: 191 }),
+  format: varchar("format", { length: 16 }).default("ads").notNull(), // ads|emails|landers
+  title: text("title"),
+  bodyText: text("bodyText"),
+  ctaText: varchar("ctaText", { length: 64 }),
+  landingUrl: text("landingUrl"),
+  imageUrl: text("imageUrl"),
+  videoUrl: text("videoUrl"),
+  thumbnailUrl: text("thumbnailUrl"),
+  startedRunningAt: timestamp("startedRunningAt"),
+  activeDays: int("activeDays").default(0).notNull(), // proxy di performance: più gira, più vince
+  score: int("score").default(0).notNull(),
+  liked: boolean("liked").default(false).notNull(), // 🩷 → appare nella tab Templates
+  likedAt: timestamp("likedAt"),
+  raw: json("raw"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [uniqueIndex("uq_ad_inspiration").on(t.userId, t.adArchiveId)]);
+export type AdInspiration = typeof adInspirations.$inferSelect;
+
 // ─── AI Manager (chat con l'orchestrator Polaris, stile Athena) ────────────────
 export const metaChatMessages = mysqlTable("meta_chat_messages", {
   id: int("id").autoincrement().primaryKey(),

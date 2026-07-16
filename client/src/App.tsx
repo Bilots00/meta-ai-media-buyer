@@ -10,6 +10,7 @@ import DashboardLayout from "./components/DashboardLayout";
 import Dashboard from "./pages/Dashboard";
 import MetaAiManager from "./pages/MetaAiManager";
 import MissionControl from "./pages/MissionControl";
+import MetaInspiration from "./pages/MetaInspiration";
 import Campaigns from "./pages/Campaigns";
 import AuditAI from "./pages/AuditAI";
 import CopyGenerator from "./pages/CopyGenerator";
@@ -51,6 +52,7 @@ function AppRouter() {
       <Route path="/dashboard">{withLayout(Dashboard)}</Route>
       <Route path="/ai-manager">{withLayout(MetaAiManager)}</Route>
       <Route path="/mission-control">{withLayout(MissionControl)}</Route>
+      <Route path="/meta/inspiration">{withLayout(MetaInspiration)}</Route>
       <Route path="/campaigns">{withLayout(Campaigns)}</Route>
       <Route path="/audit">{withLayout(AuditAI)}</Route>
       <Route path="/copy">{withLayout(CopyGenerator)}</Route>

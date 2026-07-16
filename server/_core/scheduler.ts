@@ -4,6 +4,7 @@ import { insertSocialChatMessage, getAllUserSettings } from "../db";
 import { runAllStoresCycle, enrichPendingMarketChanges } from "../marketIntelService";
 import { runAllEtsyShops } from "../etsyService";
 import { runAgentsCycle } from "../metaAgentsService";
+import { refreshAllBrands } from "../adsLibraryService";
 
 // Scheduler in-process (il server Railway è always-on): job giornalieri a orario
 // fisso italiano, indipendenti dai bottoni della UI e dal browser aperto.
@@ -104,6 +105,12 @@ export function registerDailySchedules() {
   scheduleDaily(9, 45, "etsy-watchlist", async () => {
     const r = await runAllEtsyShops(OWNER_USER_ID);
     console.log(`[Scheduler] etsy 09:45: shops=${r.shops} listings=${r.listings} errori=${r.errors.length}`);
+  });
+
+  // Ads Inspiration: refresh giornaliero delle ads dei brand in watchlist
+  scheduleDaily(10, 0, "ads-library-refresh", async () => {
+    const r = await refreshAllBrands(OWNER_USER_ID);
+    console.log(`[Scheduler] ads-library 10:00: brands=${r.brands} ingested=${r.ingested} errori=${r.errors.length}`);
   });
 
   // Mission Control: ciclo del team agenti Paid Advertising ogni 30 minuti

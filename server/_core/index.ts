@@ -11,6 +11,7 @@ import { registerWatchlistRoutes } from "./watchlistRoutes";
 import { registerImageProxy } from "./imageProxy";
 import { registerResearchRoutes } from "./researchRoutes";
 import { registerMarketRoutes } from "./marketRoutes";
+import { registerAdsLibraryRoutes } from "./adsLibraryRoutes";
 import { registerDailySchedules } from "./scheduler";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
@@ -361,6 +362,53 @@ async function runMigrations() {
   } catch (err) {
     console.warn("[Migrate] tabelle mission control non create:", err);
   }
+  // Ads Inspiration (replica CreativeOS): brand watchlist + creative scrapate
+  try {
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS ad_brands (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL,
+      name VARCHAR(191) NOT NULL,
+      pageId VARCHAR(64) NOT NULL,
+      category VARCHAR(64),
+      logoUrl TEXT,
+      status VARCHAR(16) NOT NULL DEFAULT 'pending',
+      lastError TEXT,
+      adCount INT NOT NULL DEFAULT 0,
+      lastRefreshAt TIMESTAMP NULL,
+      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_ad_brand (userId, pageId)
+    ) DEFAULT CHARSET=utf8mb4`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS ad_inspirations (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL,
+      brandId INT NULL,
+      source VARCHAR(24) NOT NULL DEFAULT 'fb_ads_library',
+      adArchiveId VARCHAR(64) NOT NULL,
+      pageName VARCHAR(191),
+      format VARCHAR(16) NOT NULL DEFAULT 'ads',
+      title TEXT,
+      bodyText TEXT,
+      ctaText VARCHAR(64),
+      landingUrl TEXT,
+      imageUrl TEXT,
+      videoUrl TEXT,
+      thumbnailUrl TEXT,
+      startedRunningAt TIMESTAMP NULL,
+      activeDays INT NOT NULL DEFAULT 0,
+      score INT NOT NULL DEFAULT 0,
+      liked BOOLEAN NOT NULL DEFAULT FALSE,
+      likedAt TIMESTAMP NULL,
+      raw JSON,
+      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_ad_inspiration (userId, adArchiveId),
+      INDEX idx_ad_insp_brand (brandId),
+      INDEX idx_ad_insp_liked (liked)
+    ) DEFAULT CHARSET=utf8mb4`);
+    console.log("[Migrate] Tabelle ad_brands + ad_inspirations pronte");
+  } catch (err) {
+    console.warn("[Migrate] tabelle ads inspiration non create:", err);
+  }
 }
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -397,6 +445,7 @@ async function startServer() {
   registerImageProxy(app);
   registerResearchRoutes(app);
   registerMarketRoutes(app);
+  registerAdsLibraryRoutes(app);
   // tRPC API
   app.use(
     "/api/trpc",

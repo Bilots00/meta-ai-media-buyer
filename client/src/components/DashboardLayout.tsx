@@ -21,13 +21,10 @@ const META_ADS_ITEMS = [
   { icon: BarChart3, label: "Dashboard", path: "/dashboard", description: "KPI & Performance" },
   { icon: Star, label: "AI Manager", path: "/ai-manager", description: "Polaris: lancia campagne in chat" },
   { icon: Satellite, label: "Mission Control", path: "/mission-control", description: "Team agenti AI in tempo reale" },
-  { icon: Megaphone, label: "Campagne", path: "/campaigns", description: "Gestione campagne META" },
-  { icon: Target, label: "Obiettivi AI", path: "/goals", description: "Goal-based agent" },
+  { icon: Lightbulb, label: "Inspiration", path: "/meta/inspiration", description: "Templates, ads spy & brands" },
   { icon: Sparkles, label: "Audit AI", path: "/audit", description: "Analisi account" },
   { icon: Bot, label: "Copy Generator", path: "/copy", description: "Testi pubblicitari AI" },
-  { icon: FlaskConical, label: "A/B Testing", path: "/ab-testing", description: "Test varianti" },
   { icon: Zap, label: "Tracking", path: "/tracking", description: "Pixel & CAPI" },
-  { icon: Activity, label: "Log Agente", path: "/logs", description: "Azioni autonome AI" },
   { icon: AlertTriangle, label: "Alert", path: "/alerts", description: "Anomalie & Recovery" },
   { icon: Plug, label: "Connetti Account", path: "/connect", description: "META Business" },
 ];
@@ -60,8 +57,18 @@ const LIBRARY_ITEMS = [
   { icon: Images, label: "My Assets", path: "/meta/library/assets", description: "Creative generate (n8n / Drive)" },
 ];
 
+// Pagine fuori dalla sidebar ma ancora raggiungibili da link interni
+// (Mission Control → /logs, Dashboard → /campaigns, ecc.): servono solo
+// per il titolo nell'header, non vengono renderizzate nei NavGroup.
+const HIDDEN_ITEMS = [
+  { icon: Megaphone, label: "Campagne", path: "/campaigns", description: "Gestione campagne META" },
+  { icon: Target, label: "Obiettivi AI", path: "/goals", description: "Goal-based agent" },
+  { icon: FlaskConical, label: "A/B Testing", path: "/ab-testing", description: "Test varianti" },
+  { icon: Activity, label: "Log Agente", path: "/logs", description: "Azioni autonome AI" },
+];
+
 // Flat map for header lookup
-const ALL_ITEMS = [...META_ADS_ITEMS, ...GELATO_ITEMS, ...SOCIAL_ITEMS, ...SEO_ITEMS, ...CARE_ITEMS, ...LIBRARY_ITEMS];
+const ALL_ITEMS = [...META_ADS_ITEMS, ...GELATO_ITEMS, ...SOCIAL_ITEMS, ...SEO_ITEMS, ...CARE_ITEMS, ...LIBRARY_ITEMS, ...HIDDEN_ITEMS];
 
 // ─── NavGroup component ───────────────────────────────────────────────────────
 function NavGroup({

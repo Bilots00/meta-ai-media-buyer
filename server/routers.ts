@@ -42,6 +42,11 @@ import {
   aiManagerChatList, aiManagerSend, aiManagerConfirmAction, runAgentsCycle,
 } from "./metaAgentsService";
 import {
+  addBrand as addAdBrand, removeBrand as removeAdBrand, listBrands as listAdBrands,
+  refreshBrand as refreshAdBrand, refreshAllBrands as refreshAllAdBrands,
+  listInspirations, toggleLike as toggleInspirationLike, cloneInspiration,
+} from "./adsLibraryService";
+import {
   addMarketStore, removeMarketStore, listMarketStores, updateMarketStore,
   getMarketChanges, updateMarketChange,
 } from "./db";
@@ -371,6 +376,34 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => aiManagerSend(ctx.user.id, input.text)),
     chatConfirm: protectedProcedure.input(z.object({ messageId: z.number(), approve: z.boolean() }))
       .mutation(async ({ ctx, input }) => aiManagerConfirmAction(ctx.user.id, input.messageId, input.approve)),
+  }),
+
+  // ─── Ads Inspiration (replica CreativeOS: templates / inspiration / brands) ──
+  adsLibrary: router({
+    brands: protectedProcedure.query(async ({ ctx }) => listAdBrands(ctx.user.id)),
+    addBrand: protectedProcedure
+      .input(z.object({ name: z.string().min(1), pageInput: z.string().min(3), category: z.string().optional() }))
+      .mutation(async ({ ctx, input }) => addAdBrand(ctx.user.id, input)),
+    removeBrand: protectedProcedure.input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => removeAdBrand(ctx.user.id, input.id)),
+    refreshBrand: protectedProcedure.input(z.object({ id: z.number().optional() }))
+      .mutation(async ({ ctx, input }) => input.id != null
+        ? refreshAdBrand(ctx.user.id, input.id)
+        : refreshAllAdBrands(ctx.user.id)),
+    inspirations: protectedProcedure
+      .input(z.object({
+        q: z.string().optional(),
+        brandId: z.number().optional(),
+        liked: z.boolean().optional(),
+        format: z.string().optional(),
+        sort: z.enum(["trending", "newest"]).optional(),
+        limit: z.number().optional(),
+      }))
+      .query(async ({ ctx, input }) => listInspirations(ctx.user.id, input)),
+    toggleLike: protectedProcedure.input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => toggleInspirationLike(ctx.user.id, input.id)),
+    clone: protectedProcedure.input(z.object({ id: z.number(), note: z.string().optional() }))
+      .mutation(async ({ ctx, input }) => cloneInspiration(ctx.user.id, input.id, input.note)),
   }),
 
   // ─── Meta Accounts ──────────────────────────────────────────────────────────

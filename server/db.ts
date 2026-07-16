@@ -1,6 +1,6 @@
 import { eq, desc, and, or, isNull, gte, lte, sql, notInArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, metaAccounts, campaigns, adSets, ads, kpiSnapshots, goals, agentLogs, abTests, alerts, copyGenerations, trackingConfigs, userSettings, csConversations, csMessages, socialDrafts, socialChatMessages, watchlistChannels, watchlistVideos, researchItems, marketStores, marketProducts, marketSnapshots, marketChanges, etsyShops, etsyShopSnapshots, etsyListings, mcAgents, mcActivity, mcCampaignState, metaChatMessages } from "../drizzle/schema";
+import { InsertUser, users, metaAccounts, campaigns, adSets, ads, kpiSnapshots, goals, agentLogs, abTests, alerts, copyGenerations, trackingConfigs, userSettings, csConversations, csMessages, socialDrafts, socialChatMessages, watchlistChannels, watchlistVideos, researchItems, marketStores, marketProducts, marketSnapshots, marketChanges, etsyShops, etsyShopSnapshots, etsyListings, mcAgents, mcActivity, mcCampaignState, metaChatMessages, adBrands, adInspirations } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -1020,4 +1020,72 @@ export async function getMetaChatMessageById(id: number) {
 export async function updateMetaChatMessage(id: number, patch: Partial<typeof metaChatMessages.$inferInsert>) {
   const db = await getDb(); if (!db) return;
   await db.update(metaChatMessages).set(patch).where(eq(metaChatMessages.id, id));
+}
+
+// ─── Ads Inspiration: brand watchlist + creative ──────────────────────────────
+export async function getAdBrands(userId: number) {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(adBrands).where(eq(adBrands.userId, userId)).orderBy(desc(adBrands.adCount));
+}
+export async function getAdBrandById(id: number) {
+  const db = await getDb(); if (!db) return undefined;
+  const rows = await db.select().from(adBrands).where(eq(adBrands.id, id)).limit(1);
+  return rows[0];
+}
+export async function getAdBrandByPageId(userId: number, pageId: string) {
+  const db = await getDb(); if (!db) return undefined;
+  const rows = await db.select().from(adBrands).where(and(eq(adBrands.userId, userId), eq(adBrands.pageId, pageId))).limit(1);
+  return rows[0];
+}
+export async function insertAdBrand(data: typeof adBrands.$inferInsert): Promise<number> {
+  const db = await getDb(); if (!db) throw new Error("DB not available");
+  const r = await db.insert(adBrands).values(data);
+  return Number((r as unknown as { insertId: number }[])[0].insertId);
+}
+export async function updateAdBrand(id: number, patch: Partial<typeof adBrands.$inferInsert>) {
+  const db = await getDb(); if (!db) return;
+  await db.update(adBrands).set(patch).where(eq(adBrands.id, id));
+}
+export async function deleteAdBrand(userId: number, id: number) {
+  const db = await getDb(); if (!db) return;
+  await db.delete(adInspirations).where(and(eq(adInspirations.userId, userId), eq(adInspirations.brandId, id)));
+  await db.delete(adBrands).where(and(eq(adBrands.userId, userId), eq(adBrands.id, id)));
+}
+export async function upsertAdInspiration(data: typeof adInspirations.$inferInsert) {
+  const db = await getDb(); if (!db) return;
+  await db.insert(adInspirations).values(data).onDuplicateKeyUpdate({ set: {
+    pageName: data.pageName, title: data.title, bodyText: data.bodyText, ctaText: data.ctaText,
+    landingUrl: data.landingUrl, imageUrl: data.imageUrl, videoUrl: data.videoUrl, thumbnailUrl: data.thumbnailUrl,
+    startedRunningAt: data.startedRunningAt, activeDays: data.activeDays, score: data.score,
+    ...(data.brandId != null ? { brandId: data.brandId } : {}),
+  } });
+}
+export async function getAdInspirations(userId: number, opts: { q?: string; brandId?: number; liked?: boolean; format?: string; sort?: "trending" | "newest"; limit?: number } = {}) {
+  const db = await getDb(); if (!db) return [];
+  const conds = [eq(adInspirations.userId, userId)];
+  if (opts.brandId != null) conds.push(eq(adInspirations.brandId, opts.brandId));
+  if (opts.liked != null) conds.push(eq(adInspirations.liked, opts.liked));
+  if (opts.format) conds.push(eq(adInspirations.format, opts.format));
+  if (opts.q) {
+    const pat = "%" + opts.q + "%";
+    conds.push(or(sql`${adInspirations.pageName} LIKE ${pat}`, sql`${adInspirations.title} LIKE ${pat}`, sql`${adInspirations.bodyText} LIKE ${pat}`)!);
+  }
+  const orderCol = opts.sort === "newest" ? desc(adInspirations.createdAt) : desc(adInspirations.score);
+  return db.select().from(adInspirations).where(and(...conds)).orderBy(orderCol, desc(adInspirations.createdAt)).limit(Math.min(opts.limit ?? 120, 400));
+}
+export async function getAdInspirationById(id: number) {
+  const db = await getDb(); if (!db) return undefined;
+  const rows = await db.select().from(adInspirations).where(eq(adInspirations.id, id)).limit(1);
+  return rows[0];
+}
+export async function setAdInspirationLiked(userId: number, id: number, liked: boolean) {
+  const db = await getDb(); if (!db) return;
+  await db.update(adInspirations).set({ liked, likedAt: liked ? new Date() : null })
+    .where(and(eq(adInspirations.userId, userId), eq(adInspirations.id, id)));
+}
+export async function countAdInspirationsByBrand(userId: number, brandId: number): Promise<number> {
+  const db = await getDb(); if (!db) return 0;
+  const rows = await db.select({ n: sql`count(*)` }).from(adInspirations)
+    .where(and(eq(adInspirations.userId, userId), eq(adInspirations.brandId, brandId)));
+  return Number((rows[0] as { n: unknown })?.n ?? 0);
 }
