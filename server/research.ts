@@ -19,7 +19,7 @@ import { AXIOS_TIMEOUT_MS } from "@shared/const";
 import { invokeLLM } from "./_core/llm";
 import { apifyRunSync, hasApifyToken } from "./watchlist";
 
-export type ResearchSource = "reddit" | "news" | "trends" | "substack" | "pinterest" | "gmail" | "manual";
+export type ResearchSource = "reddit" | "news" | "trends" | "substack" | "pinterest" | "blog" | "gmail" | "manual";
 
 export interface FetchedResearchItem {
   source: ResearchSource;
@@ -41,6 +41,8 @@ export interface ResearchSourcesConfig {
   trendsGeo: string;
   // ID interessi di trends.pinterest.com (?topicInterestIds=...), opzionali
   pinterestInterestIds: string[];
+  // Blog/siti competitor da monitorare (sezione "Blog Post"): URL sito o feed diretto
+  blogFeeds: string[];
 }
 
 export const DEFAULT_SOURCES: ResearchSourcesConfig = {
@@ -49,6 +51,7 @@ export const DEFAULT_SOURCES: ResearchSourcesConfig = {
   substacks: [],
   trendsGeo: "IT",
   pinterestInterestIds: [],
+  blogFeeds: [],
 };
 
 export const DEFAULT_BRAND_CONTEXT =
@@ -233,7 +236,9 @@ const COUNTRY_LANG: Record<string, string> = {
 export async function fetchGoogleNews(query: string, country = "IT"): Promise<FetchedResearchItem[]> {
   const geo = country.toUpperCase();
   const lang = COUNTRY_LANG[geo] ?? "en";
-  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=${lang}&gl=${geo}&ceid=${geo}:${lang}`;
+  // "when:7d" = solo notizie dell'ultima settimana: senza, Google News restituisce
+  // articoli RILEVANTI ma anche vecchi di mesi → sparivano dai filtri 24/48h
+  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(`${query} when:7d`)}&hl=${lang}&gl=${geo}&ceid=${geo}:${lang}`;
   const xml = await httpGetText(url);
   return parseRssItems(xml).slice(0, 15).map((i, idx) => ({
     source: "news" as const,
@@ -282,7 +287,9 @@ export async function fetchPinterestTrends(country: string, interestIds: string[
     weeklyChange?: number; monthlyChange?: number; yearlyChange?: number;
     seasonalityScore?: number; trendType?: string; pinterestTrendsUrl?: string;
   };
-  const input: Record<string, unknown> = { countries: [country], maxResultsPerCountry: max, trendTypes: ["growing"] };
+  // growing + seasonal + top_monthly = copertura più ampia (l'enum dell'actor non
+  // include i trend "shopping": quelli passano dalla sessione, vedi fetch dedicato)
+  const input: Record<string, unknown> = { countries: [country], maxResultsPerCountry: max, trendTypes: ["growing", "seasonal", "top_monthly"] };
   if (interestIds.length) input.interestIds = interestIds;
   const items = await apifyRunSync<PinTrend>("automation-lab~pinterest-trends-scraper", input);
   return items.filter((i) => i.term).map((i) => {
@@ -306,6 +313,65 @@ export async function fetchPinterestTrends(country: string, interestIds: string[
       publishedAt: new Date(),
     };
   });
+}
+
+/**
+ * Blog competitor (sezione "Blog Post"): autodiscovery del feed RSS/Atom.
+ * Accetta l'URL del sito o del feed diretto. Prova: <link rel="alternate">,
+ * poi i path comuni (/feed, /rss, /atom.xml, /blogs/news.atom per Shopify).
+ */
+export async function fetchBlogArticles(siteUrl: string, max = 10): Promise<FetchedResearchItem[]> {
+  const input = siteUrl.trim().replace(/\/+$/, "");
+  const base = /^https?:\/\//i.test(input) ? input : `https://${input}`;
+  const host = new URL(base).hostname.replace(/^www\./, "");
+
+  const tryParse = async (feedUrl: string): Promise<FetchedResearchItem[] | null> => {
+    try {
+      const xml = await httpGetText(feedUrl);
+      if (/^\s*<!doctype html/i.test(xml)) return null;
+      const items = parseRssItems(xml);
+      if (items.length === 0) return null;
+      return items.slice(0, max).map((i) => ({
+        source: "blog" as const,
+        sourceDetail: host,
+        title: i.title.slice(0, 500),
+        url: i.link,
+        excerpt: i.description?.slice(0, 1500),
+        viralityScore: 5,
+        engagement: 0,
+        publishedAt: i.pubDate,
+      }));
+    } catch {
+      return null;
+    }
+  };
+
+  // 1) l'URL è già un feed?
+  if (/\.(xml|atom|rss)$|\/feed\/?$|\/rss\/?$/i.test(base)) {
+    const direct = await tryParse(base);
+    if (direct) return direct;
+  }
+  // 2) autodiscovery dalla home: <link rel="alternate" type="application/rss+xml|atom+xml">
+  try {
+    const html = await httpGetText(base);
+    const links = Array.from(html.matchAll(/<link[^>]+rel=["']alternate["'][^>]*>/gi)).map((m) => m[0]);
+    for (const tag of links) {
+      if (!/application\/(rss|atom)\+xml/i.test(tag)) continue;
+      const href = tag.match(/href=["']([^"']+)["']/i)?.[1];
+      if (!href) continue;
+      const feedUrl = href.startsWith("http") ? href : new URL(href, base).toString();
+      const found = await tryParse(feedUrl);
+      if (found) return found;
+    }
+  } catch {
+    // home non raggiungibile: proviamo comunque i path standard
+  }
+  // 3) path comuni (incluso il formato Shopify)
+  for (const path of ["/feed", "/rss", "/atom.xml", "/feed.xml", "/blog/feed", "/blogs/news.atom", "/blog/rss.xml"]) {
+    const found = await tryParse(`${base}${path}`);
+    if (found) return found;
+  }
+  throw new Error(`Nessun feed RSS/Atom trovato per ${host} — prova a incollare l'URL diretto del feed`);
 }
 
 export async function fetchSubstack(publication: string): Promise<FetchedResearchItem[]> {
@@ -355,6 +421,8 @@ export async function fetchAllResearchSources(cfg: ResearchSourcesConfig): Promi
       ? geos.map((g) => ({ name: `pinterest ${g}`, run: () => fetchPinterestTrends(g, cfg.pinterestInterestIds) }))
       : [{ name: "pinterest", run: async (): Promise<FetchedResearchItem[]> => { throw new Error("APIFY_TOKEN mancante nelle env"); } }]),
     ...cfg.substacks.map((p) => ({ name: `substack ${p}`, run: () => fetchSubstack(p) })),
+    // Blog competitor (sezione "Blog Post")
+    ...cfg.blogFeeds.map((b) => ({ name: `blog ${b}`, run: () => fetchBlogArticles(b) })),
   ];
   const results = await Promise.allSettled(otherJobs.map((j) => j.run()));
   results.forEach((r, i) => {

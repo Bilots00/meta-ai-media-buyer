@@ -27,6 +27,7 @@ import CustomerCare from "./pages/CustomerCare";
 import SocialDrafts from "./pages/SocialDrafts";
 import SocialWatchlist from "./pages/SocialWatchlist";
 import SeoResearch from "./pages/SeoResearch";
+import SeoBlogs from "./pages/SeoBlogs";
 import ProductMarketFit from "./pages/ProductMarketFit";
 import Settings from "./pages/Settings";
 import Login from "./pages/Login";
@@ -76,6 +77,7 @@ function AppRouter() {
 
       {/* SEO & RESEARCH */}
       <Route path="/seo/research">{withLayout(SeoResearch)}</Route>
+      <Route path="/seo/blogs">{withLayout(SeoBlogs)}</Route>
       <Route path="/seo">{() => { window.location.replace("/seo/research"); return null; }}</Route>
 
       {/* CUSTOMER CARE */}

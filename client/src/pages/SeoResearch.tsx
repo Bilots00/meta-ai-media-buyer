@@ -15,6 +15,7 @@ const SOURCE_META: Record<string, { label: string; color: string; icon: typeof R
   trends: { label: "Trends", color: "oklch(0.7 0.16 150)", icon: TrendingUp },
   substack: { label: "Substack", color: "oklch(0.7 0.17 60)", icon: Rss },
   pinterest: { label: "Pinterest", color: "oklch(0.58 0.22 20)", icon: Pin },
+  blog: { label: "Blog", color: "oklch(0.7 0.15 250)", icon: FileText },
   gmail: { label: "Gmail", color: "oklch(0.62 0.2 25)", icon: Mail },
   manual: { label: "Manuale", color: "oklch(0.6 0.02 260)", icon: FileText },
 };
@@ -114,7 +115,9 @@ export default function SeoResearch() {
   const generate = trpc.research.generateContent.useMutation({
     onSuccess: (r) => {
       invalidate();
-      if (r.ok) toast.success(`✅ ${r.draftIds?.length ?? 0} bozze create (blog + X + FB) — vai in Bozze per revisionarle`, { duration: 8000 });
+      if (r.ok && r.delegated) toast.success("🧠 Generazione inviata al tuo agente Claude (VPS) — le bozze arriveranno in Bozze tra pochi minuti", { duration: 8000 });
+      else if (r.ok) toast.success(`✅ ${r.draftIds?.length ?? 0} bozze create (blog + X + FB) — vai in Bozze per revisionarle`, { duration: 8000 });
+      else if (r.skipped) toast.warning(r.error ?? "Scartato dal gate di qualità (rumore fuori nicchia)", { duration: 8000 });
       else toast.error(r.error ?? "Errore");
     },
     onError: (e) => toast.error(e.message),
@@ -416,6 +419,8 @@ export default function SeoResearch() {
                         substacks: splitLines(cfgForm.substacks),
                         trendsGeo: cfgForm.trendsGeo || "IT",
                         pinterestInterestIds: splitLines(cfgForm.pinterestInterestIds),
+                        // i blog si gestiscono nella pagina Blog Post: qui vanno preservati
+                        blogFeeds: config.data?.sources.blogFeeds ?? [],
                       },
                       brandContext: cfgForm.brandContext,
                       autopilot: cfgForm.autopilot,

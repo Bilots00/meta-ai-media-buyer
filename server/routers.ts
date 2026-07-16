@@ -300,9 +300,10 @@ export const appRouter = router({
       .input(z.object({
         id: z.number(),
         formats: z.array(z.enum(["blog", "x", "facebook"])).default(["blog", "x", "facebook"]),
+        rewrite: z.boolean().default(false),
       }))
       .mutation(async ({ ctx, input }) => {
-        return generateContentFromResearch(ctx.user.id, input.id, input.formats);
+        return generateContentFromResearch(ctx.user.id, input.id, input.formats, { rewrite: input.rewrite });
       }),
 
     getConfig: protectedProcedure.query(async ({ ctx }) => {
@@ -317,6 +318,7 @@ export const appRouter = router({
           substacks: z.array(z.string()),
           trendsGeo: z.string(),
           pinterestInterestIds: z.array(z.string()).default([]),
+          blogFeeds: z.array(z.string()).default([]),
         }).optional(),
         brandContext: z.string().optional(),
         autopilot: z.boolean().optional(),
