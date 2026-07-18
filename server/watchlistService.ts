@@ -8,7 +8,6 @@ import {
   getWatchlistVideoViews, setWatchlistVideoOutlier, getMetaAccountsByUserId,
 } from "./db";
 import { getInstagramBusinessId, instagramBusinessDiscovery } from "./metaApi";
-import { delegateToVpsAgent, watchlistScrapeTask } from "./vpsAgent";
 import {
   parseChannelInput, fetchChannel, computeOutlierScores, computeEngagementRate,
   fetchInstagramViaApify, fetchTikTokViaApify, hasApifyToken,
@@ -157,18 +156,17 @@ export async function refreshWatchlistChannel(channelId: number): Promise<{ ok: 
         }
       }
       if (!recovered) {
-        // PIANO B: tutto fallito (Apify esaurito incluso) → delega all'agente VPS
-        // che scrapa col browser gratis e ri-carica via /ingest
+        // IG/TikTok bloccano TUTTI gli IP server (Railway, VPS, Apify): l'unico IP
+        // che Instagram accetta è il browser residenziale dell'utente. Il refresh
+        // reale avviene dallo userscript su instagram.com. Qui segniamo solo il
+        // canale come "pending" → niente errore rosso, si popola dal browser.
         if (channel.platform !== "youtube") {
-          const d = await delegateToVpsAgent(
-            channel.userId,
-            `watchlist_${channel.platform}_${channel.handle}`,
-            watchlistScrapeTask(channel.platform, channel.handle),
-          );
-          if (d.delegated) {
-            await updateWatchlistChannel(channelId, { status: "pending", lastError: "In attesa di sync dal browser: apri instagram.com (con lo script Watchlist attivo) e il canale si popola da solo", lastRefreshAt: new Date() });
-            return { ok: true, videosStored: 0, delegated: true };
-          }
+          await updateWatchlistChannel(channelId, {
+            status: "pending",
+            lastError: "In attesa di sync dal browser: apri instagram.com con lo script Watchlist Auto-Sync e il canale si popola in 1-2 minuti (gratis).",
+            lastRefreshAt: new Date(),
+          });
+          return { ok: true, videosStored: 0, delegated: true };
         }
         throw new Error(reasons.join(" — "));
       }
