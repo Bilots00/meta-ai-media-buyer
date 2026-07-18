@@ -364,6 +364,11 @@ export async function fetchYouTubeChannel(handle: string, maxVideos = 50): Promi
 // csrftoken=..." — usiamo gli stessi endpoint interni del web client loggato:
 // funzionano anche da IP datacenter e danno le VIEWS vere dei reel.
 // ⚠️ Consiglio: usare i cookie di un account IG SECONDARIO, non quello del brand.
+/** Thumbnail pubblica e stabile di un post/reel IG (302 → CDN, nessuna auth, non scade). */
+export function igCanonicalThumb(code: string, isVideo: boolean): string {
+  return `https://www.instagram.com/${isVideo ? "reel" : "p"}/${code}/media/?size=l`;
+}
+
 async function igSessionHeaders(): Promise<Record<string, string> | null> {
   const cookie = (process.env.IG_SESSION_COOKIE ?? "").trim();
   if (!cookie) return null;
@@ -401,7 +406,8 @@ export async function fetchInstagramViaSession(handle: string): Promise<FetchedC
     videos: items.filter((m) => m?.code).map((m) => ({
       platformVideoId: String(m.code),
       url: `https://www.instagram.com/${m.media_type === 2 ? "reel" : "p"}/${m.code}/`,
-      thumbnailUrl: m.image_versions2?.candidates?.[0]?.url ?? m.carousel_media?.[0]?.image_versions2?.candidates?.[0]?.url,
+      // thumbnail canonica /media/ (non scade) invece dell'URL firmato che dura ore
+      thumbnailUrl: igCanonicalThumb(String(m.code), m.media_type === 2),
       title: (m.caption?.text ?? "").slice(0, 500),
       publishedAt: m.taken_at ? new Date(Number(m.taken_at) * 1000) : undefined,
       views: Number(m.play_count ?? m.view_count ?? m.ig_play_count ?? 0),
@@ -453,7 +459,7 @@ export async function fetchInstagramChannel(handle: string): Promise<FetchedChan
       return {
         platformVideoId: String(n.shortcode),
         url: `https://www.instagram.com/${n.is_video ? "reel" : "p"}/${n.shortcode}/`,
-        thumbnailUrl: n.thumbnail_src ?? n.display_url,
+        thumbnailUrl: igCanonicalThumb(String(n.shortcode), Boolean(n.is_video)),
         title: n.edge_media_to_caption?.edges?.[0]?.node?.text?.slice(0, 500),
         publishedAt: n.taken_at_timestamp ? new Date(n.taken_at_timestamp * 1000) : undefined,
         views: Number(n.video_view_count ?? n.video_play_count ?? 0),
@@ -637,7 +643,8 @@ export async function fetchInstagramViaApify(handle: string): Promise<FetchedCha
     videos: (p.latestPosts ?? []).filter((m) => m.shortCode || m.url).map((m) => ({
       platformVideoId: String(m.shortCode ?? m.id),
       url: m.url ?? `https://www.instagram.com/p/${m.shortCode}/`,
-      thumbnailUrl: m.displayUrl,
+      // thumbnail canonica se abbiamo lo shortCode (non scade), altrimenti il displayUrl Apify
+      thumbnailUrl: m.shortCode ? igCanonicalThumb(String(m.shortCode), (m.type ?? "").toLowerCase().includes("video")) : m.displayUrl,
       title: m.caption?.slice(0, 500),
       publishedAt: m.timestamp ? new Date(m.timestamp) : undefined,
       views: Number(m.videoViewCount ?? m.videoPlayCount ?? 0),

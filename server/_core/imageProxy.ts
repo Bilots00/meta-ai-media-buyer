@@ -7,6 +7,7 @@ import type { Express, Request, Response } from "express";
 const ALLOWED_HOST_SUFFIXES = [
   "cdninstagram.com",
   "fbcdn.net",
+  "instagram.com", // /p|reel/{code}/media/?size=l → 302 alla thumbnail CDN pubblica
   "tiktokcdn.com",
   "tiktokcdn-us.com",
   "ttwstatic.com",

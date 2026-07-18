@@ -108,7 +108,7 @@ export default function SocialWatchlist() {
         const errs = r.errors.length ? ` — errori: ${r.errors.map((e) => e.handle).join(", ")}` : "";
         toast.success(`${r.refreshed} canali aggiornati${errs}`);
       } else if (r.ok && "delegated" in r && r.delegated) {
-        toast.info("🤖 Fonti dirette bloccate: canale in coda all'agente. Per il fetch immediato aggiungi IG_SESSION_COOKIE nelle Railway Variables (cookie di un account IG secondario)", { duration: 12000 });
+        toast.info("🤖 Instagram/TikTok bloccano i datacenter e Apify è esaurito: il canale riparte quando Apify si ricarica (1° del mese) o via agente. Le thumbnail e i dati già presenti restano.", { duration: 10000 });
       } else if (r.ok) toast.success(`Canale aggiornato — ${r.videosStored} video`);
       else toast.error(`Refresh fallito: ${r.error}`);
     },
