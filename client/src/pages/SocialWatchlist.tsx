@@ -400,6 +400,9 @@ export default function SocialWatchlist() {
                       {c.status === "error" && (
                         <span title={c.lastError ?? "Errore refresh"}><AlertTriangle className="w-3 h-3 shrink-0" style={{ color: "oklch(0.7 0.15 60)" }} /></span>
                       )}
+                      {c.status === "pending" && (
+                        <span title={c.lastError ?? "In coda all'agente VPS"}><Bot className="w-3 h-3 shrink-0" style={{ color: "oklch(0.7 0.15 265)" }} /></span>
+                      )}
                     </div>
                     <p className="text-[11px] text-muted-foreground truncate">
                       {fmtNum(c.followers)} follower · {fmtNum(c.views30d)} views 30g

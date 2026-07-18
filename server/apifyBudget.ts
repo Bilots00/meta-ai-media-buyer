@@ -8,7 +8,9 @@
 import { getAllUserSettings, upsertUserSetting } from "./db";
 
 const OWNER_USER_ID = 1;
-const CAP_USD = Number(process.env.APIFY_MONTHLY_CAP_USD ?? "4.5"); // margine sotto i $5
+// tetto = il limite reale del piano free ($5). Non lo abbassiamo: quando Apify è
+// esaurito subentra il PIANO B (agente VPS, browser gratis). Alzabile se paghi.
+const CAP_USD = Number(process.env.APIFY_MONTHLY_CAP_USD ?? "5");
 
 // costo stimato per run/chiamata in base all'actor (tier free, ordini di grandezza reali)
 function estimatedCostUsd(actorId: string): number {

@@ -14,6 +14,7 @@ import {
   DEFAULT_SOURCES, DEFAULT_BRAND_CONTEXT,
   type ResearchSourcesConfig, type FetchedResearchItem, type ResearchSource,
 } from "./research";
+import { delegateToVpsAgent, pinterestScrapeTask } from "./vpsAgent";
 
 const ENRICH_BATCH = 12; // item arricchiti dall'LLM per refresh (i più virali)
 const COMMENTS_PER_BATCH = 4; // post reddit di cui leggere i commenti a ogni enrich
@@ -170,6 +171,13 @@ export async function refreshResearch(userId: number): Promise<{ fetched: number
   const { items, errors } = await fetchAllResearchSources(sources, { runPinterest });
   if (runPinterest && sources.pinterestInterestIds !== undefined) {
     await upsertUserSetting(userId, "seo_pinterest_last_fetch", String(Date.now()));
+  }
+  // PIANO B: se Pinterest doveva girare ma Apify l'ha bloccato (budget/limite),
+  // delega lo scraping all'agente VPS (browser gratis) che ricarica via /ingest
+  if (runPinterest && errors.some((e) => /pinterest/i.test(e) && /apify|budget|limit|429|403/i.test(e))) {
+    const geo = sources.trendsGeo.split(/[,\s]+/)[0]?.toUpperCase() || "IT";
+    const d = await delegateToVpsAgent(userId, `pinterest_${geo}`, pinterestScrapeTask(geo, sources.pinterestInterestIds));
+    if (d.delegated) errors.push("Pinterest: Apify esaurito → in coda all'agente VPS (browser gratis)");
   }
   const { stored, errors: insertErrors } = await storeResearchItems(userId, items);
   // se il fetch ha portato item ma NON se ne salva nessuno, l'errore DB è la causa vera

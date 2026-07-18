@@ -8,6 +8,7 @@ import {
   getWatchlistVideoViews, setWatchlistVideoOutlier, getMetaAccountsByUserId,
 } from "./db";
 import { getInstagramBusinessId, instagramBusinessDiscovery } from "./metaApi";
+import { delegateToVpsAgent, watchlistScrapeTask } from "./vpsAgent";
 import {
   parseChannelInput, fetchChannel, computeOutlierScores, computeEngagementRate,
   fetchInstagramViaApify, fetchTikTokViaApify, hasApifyToken,
@@ -156,8 +157,18 @@ export async function refreshWatchlistChannel(channelId: number): Promise<{ ok: 
         }
       }
       if (!recovered) {
-        if (channel.platform !== "youtube" && !hasApifyToken()) {
-          reasons.push("Suggerimento: imposta APIFY_TOKEN nelle Railway Variables per il fallback Apify automatico");
+        // PIANO B: tutto fallito (Apify esaurito incluso) → delega all'agente VPS
+        // che scrapa col browser gratis e ri-carica via /ingest
+        if (channel.platform !== "youtube") {
+          const d = await delegateToVpsAgent(
+            channel.userId,
+            `watchlist_${channel.platform}_${channel.handle}`,
+            watchlistScrapeTask(channel.platform, channel.handle),
+          );
+          if (d.delegated) {
+            await updateWatchlistChannel(channelId, { status: "pending", lastError: "In coda all'agente VPS (scraping browser gratis)", lastRefreshAt: new Date() });
+            return { ok: true, videosStored: 0, error: undefined };
+          }
         }
         throw new Error(reasons.join(" — "));
       }
