@@ -364,9 +364,10 @@ export async function fetchYouTubeChannel(handle: string, maxVideos = 50): Promi
 // csrftoken=..." — usiamo gli stessi endpoint interni del web client loggato:
 // funzionano anche da IP datacenter e danno le VIEWS vere dei reel.
 // ⚠️ Consiglio: usare i cookie di un account IG SECONDARIO, non quello del brand.
-/** Thumbnail pubblica e stabile di un post/reel IG (302 → CDN, nessuna auth, non scade). */
-export function igCanonicalThumb(code: string, isVideo: boolean): string {
-  return `https://www.instagram.com/${isVideo ? "reel" : "p"}/${code}/media/?size=l`;
+/** Thumbnail pubblica e stabile di un post/reel IG. Il path /p/ funziona per TUTTI
+ * i media (i reel su /reel/.../media/ danno 404). Verificato caricabile in browser. */
+export function igCanonicalThumb(code: string, _isVideo?: boolean): string {
+  return `https://www.instagram.com/p/${code}/media/?size=l`;
 }
 
 async function igSessionHeaders(): Promise<Record<string, string> | null> {
