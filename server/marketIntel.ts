@@ -270,6 +270,43 @@ export async function probeTrueStock(domain: string, variantIds: string[]): Prom
   return out;
 }
 
+/**
+ * Recensioni per-prodotto da una pagina prodotto Shopify (Judge.me / Loox / Yotpo / JSON-LD).
+ * Una recensione = ALMENO una vendita: è la conferma minima di vendita richiesta dal metodo.
+ */
+export function extractReviewCountFromHtml(html: string): number | null {
+  const patterns = [
+    /"reviewCount"\s*:\s*"?(\d+)"?/i,            // JSON-LD aggregateRating
+    /"ratingCount"\s*:\s*"?(\d+)"?/i,
+    /data-number-of-reviews\s*=\s*"(\d+)"/i,      // Judge.me
+    /data-reviews-count\s*=\s*"(\d+)"/i,
+    /data-raters\s*=\s*"(\d+)"/i,                 // Loox
+    /(\d+)\s+reviews?\b/i,                        // fallback testuale
+  ];
+  for (const re of patterns) {
+    const m = html.match(re);
+    if (m) { const n = parseInt(m[1], 10); if (Number.isFinite(n) && n >= 0 && n < 1_000_000) return n; }
+  }
+  return null;
+}
+
+/** Legge il review count dalle pagine prodotto dei top best-seller (max `limit`, 1.2s di pausa). */
+export async function fetchShopifyReviewCounts(domain: string, handles: string[], limit = 8): Promise<Map<string, number>> {
+  const d = normalizeDomain(domain);
+  const out = new Map<string, number>();
+  const targets = handles.slice(0, limit);
+  for (let i = 0; i < targets.length; i++) {
+    if (i > 0) await sleep(1200);
+    try {
+      const r = await politeFetch(`https://${d}/products/${targets[i]}`, { seed: i, headers: { Accept: "text/html" } });
+      if (!r.ok) continue;
+      const n = extractReviewCountFromHtml(await r.text());
+      if (n != null) out.set(targets[i], n);
+    } catch { /* best-effort */ }
+  }
+  return out;
+}
+
 /** Ordine best-selling (ranking vendite reale di Shopify) parsando la collezione HTML. */
 export async function fetchBestSellerRanks(domain: string): Promise<Map<string, number>> {
   const d = normalizeDomain(domain);

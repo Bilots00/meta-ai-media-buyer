@@ -10,7 +10,7 @@ import {
   getAllUserSettings, upsertUserSetting,
 } from "./db";
 import {
-  fetchShopifyCatalog, fetchBestSellerRanks, detectChanges,
+  fetchShopifyCatalog, fetchBestSellerRanks, fetchShopifyReviewCounts, detectChanges,
   type NormProduct,
 } from "./marketIntel";
 import { runResearchLLM, extractJson, sanitizeText, DEFAULT_BRAND_CONTEXT } from "./research";
@@ -61,6 +61,11 @@ export async function runStoreMonitorCycle(
         variants: [], publishedAt: p.publishedAt ? new Date(p.publishedAt) : null,
       }));
     const events = detectChanges(storeId, prev, curr);
+    // recensioni per-prodotto sui top best-seller (una recensione = almeno una vendita)
+    const topHandles = Array.from(ranks.entries()).sort((a, b) => a[1] - b[1]).slice(0, 8).map(([h]) => h);
+    const reviewCounts = topHandles.length
+      ? await fetchShopifyReviewCounts(store.domain, topHandles).catch(() => new Map<string, number>())
+      : new Map<string, number>();
     const now = new Date();
     for (const p of curr) {
       const rank = ranks.get(p.handle) ?? null;
@@ -71,6 +76,7 @@ export async function runStoreMonitorCycle(
         compareAtPrice: p.compareAtPrice != null ? String(p.compareAtPrice) : null,
         currency: p.currency, available: p.available, totalVariants: p.totalVariants, variantsAvailable: p.variantsAvailable,
         publishedAt: p.publishedAt, firstSeenAt: now, lastSeenAt: now, active: true, bestSellerRank: rank,
+        reviewCount: reviewCounts.get(p.handle) ?? null,
       });
       await insertMarketSnapshot({
         storeId, productId: p.productId,

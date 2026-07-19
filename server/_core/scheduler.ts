@@ -3,6 +3,7 @@ import { refreshAllWatchlistChannels } from "../watchlistService";
 import { insertSocialChatMessage, getAllUserSettings } from "../db";
 import { runAllStoresCycle, enrichPendingMarketChanges } from "../marketIntelService";
 import { runAllEtsyShops } from "../etsyService";
+import { generateDailyPicks } from "../dailyPicksService";
 import { runAgentsCycle } from "../metaAgentsService";
 import { refreshAllBrands } from "../adsLibraryService";
 
@@ -111,6 +112,13 @@ export function registerDailySchedules() {
   scheduleDaily(10, 0, "ads-library-refresh", async () => {
     const r = await refreshAllBrands(OWNER_USER_ID);
     console.log(`[Scheduler] ads-library 10:00: brands=${r.brands} ingested=${r.ingested} errori=${r.errors.length}`);
+  });
+
+  // Prodotti in evidenza del giorno: l'agente fuso incrocia i candidati raccolti
+  scheduleDaily(10, 15, "daily-picks", async () => {
+    const day = new Intl.DateTimeFormat("en-CA", { timeZone: TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    const r = await generateDailyPicks(OWNER_USER_ID, day);
+    console.log(`[Scheduler] daily-picks 10:15: ${r.count} prodotti in evidenza (LLM=${r.usedLLM})`);
   });
 
   // Mission Control: ciclo del team agenti Paid Advertising ogni 30 minuti

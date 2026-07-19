@@ -297,6 +297,25 @@ async function runMigrations() {
   } catch (err) {
     console.warn("[Migrate] tabelle etsy non create:", err);
   }
+  try {
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS ad_finds (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL, source VARCHAR(12) NOT NULL, title TEXT NOT NULL,
+      domain VARCHAR(255), url TEXT, imageUrl TEXT, adCount INT, views BIGINT, likes INT,
+      isShopify BOOLEAN NOT NULL DEFAULT FALSE, keyword VARCHAR(191), capturedAt TIMESTAMP NULL
+    ) DEFAULT CHARSET=utf8mb4`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS daily_picks (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT NOT NULL, pickDate VARCHAR(10) NOT NULL, source VARCHAR(12) NOT NULL,
+      title TEXT NOT NULL, url TEXT, imageUrl TEXT, price VARCHAR(32), reason TEXT, score INT,
+      checked BOOLEAN NOT NULL DEFAULT FALSE, createdAt TIMESTAMP NULL
+    ) DEFAULT CHARSET=utf8mb4`);
+    console.log("[Migrate] Tabelle ad_finds/daily_picks pronte");
+  } catch (err) {
+    console.warn("[Migrate] tabelle picks non create:", err);
+  }
+  try { await db.execute(sql`ALTER TABLE market_products ADD COLUMN reviewCount INT`); console.log("[Migrate] market_products.reviewCount aggiunta"); } catch { /* già presente */ }
+  try { await db.execute(sql`ALTER TABLE etsy_listings ADD COLUMN imageUrl TEXT`); console.log("[Migrate] etsy_listings.imageUrl aggiunta"); } catch { /* già presente */ }
   // Migrazione additiva idempotente: colonna `source` (web|telegram) su social_chat_messages
   try {
     const res: any = await db.execute(sql`SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'social_chat_messages' AND COLUMN_NAME = 'source'`);

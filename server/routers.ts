@@ -53,8 +53,14 @@ import {
 import {
   addMarketStore, removeMarketStore, listMarketStores, updateMarketStore,
   getMarketChanges, updateMarketChange, getMarketStore, getMarketProducts,
+  insertAdFinds, getLatestDailyPicks, setDailyPickChecked,
 } from "./db";
 import { scanMetaAdLibrary, scanTikTokTopAds } from "./adLibrary";
+import { generateDailyPicks } from "./dailyPicksService";
+
+function todayRome(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
 import {
   runAllStoresCycle, runStoreMonitorCycle, getMarketConfig, saveMarketConfig, generateOpportunityBrief,
 } from "./marketIntelService";
@@ -163,9 +169,23 @@ export const appRouter = router({
     }),
     // Ad Library scanner (metodo Kalodata/PiPiads/Minea/Winning Hunter)
     metaAdsScan: protectedProcedure.input(z.object({ keyword: z.string().min(2), country: z.string().optional(), minAds: z.number().min(1).max(100).optional(), shopifyOnly: z.boolean().optional() }))
-      .mutation(async ({ input }) => scanMetaAdLibrary(input)),
+      .mutation(async ({ ctx, input }) => {
+        const r = await scanMetaAdLibrary(input);
+        await insertAdFinds(r.advertisers.map((a) => ({ userId: ctx.user.id, source: "meta", title: a.advertiser, domain: a.domain, url: a.destinationUrl ?? a.adLibraryUrl, imageUrl: a.imageUrl, adCount: a.adCount, isShopify: a.isShopify, keyword: input.keyword.slice(0, 191) }))).catch(() => {});
+        return r;
+      }),
     tiktokScan: protectedProcedure.input(z.object({ keyword: z.string().optional(), region: z.string().optional() }))
-      .mutation(async ({ input }) => scanTikTokTopAds(input)),
+      .mutation(async ({ ctx, input }) => {
+        const r = await scanTikTokTopAds(input);
+        await insertAdFinds(r.items.map((t) => ({ userId: ctx.user.id, source: "tiktok", title: t.title, url: t.url, imageUrl: t.imageUrl, views: t.views ?? undefined, likes: t.likes ?? undefined, keyword: (input.keyword ?? "").slice(0, 191) }))).catch(() => {});
+        return r;
+      }),
+    // Prodotti in evidenza del giorno (l'agente fuso incrocia i dati)
+    dailyPicks: protectedProcedure.query(async ({ ctx }) => getLatestDailyPicks(ctx.user.id)),
+    generatePicks: protectedProcedure.mutation(async ({ ctx }) => generateDailyPicks(ctx.user.id, todayRome())),
+    pickChecked: protectedProcedure.input(z.object({ id: z.number(), checked: z.boolean() })).mutation(async ({ ctx, input }) => {
+      await setDailyPickChecked(ctx.user.id, input.id, input.checked); return { success: true } as const;
+    }),
     // GLITCH Scanner: Meta Ad Library → solo store Shopify → (opz.) aggiungi a watchlist
     glitchScan: protectedProcedure.input(z.object({ keyword: z.string().min(2), country: z.string().optional(), minAds: z.number().min(1).max(100).optional(), addToWatchlist: z.boolean().optional() }))
       .mutation(async ({ ctx, input }) => {

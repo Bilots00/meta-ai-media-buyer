@@ -1,6 +1,6 @@
 import { eq, desc, asc, and, or, isNull, gte, lte, sql, notInArray, inArray, like } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, metaAccounts, campaigns, adSets, ads, kpiSnapshots, goals, agentLogs, abTests, alerts, copyGenerations, trackingConfigs, userSettings, csConversations, csMessages, socialDrafts, socialChatMessages, watchlistChannels, watchlistVideos, researchItems, marketStores, marketProducts, marketSnapshots, marketChanges, etsyShops, etsyShopSnapshots, etsyListings, mcAgents, mcActivity, mcCampaignState, metaChatMessages, adBrands, adInspirations, claudeSessions, claudeSessionMessages, InsertClaudeSession } from "../drizzle/schema";
+import { InsertUser, users, metaAccounts, campaigns, adSets, ads, kpiSnapshots, goals, agentLogs, abTests, alerts, copyGenerations, trackingConfigs, userSettings, csConversations, csMessages, socialDrafts, socialChatMessages, watchlistChannels, watchlistVideos, researchItems, marketStores, marketProducts, marketSnapshots, marketChanges, etsyShops, etsyShopSnapshots, etsyListings, adFinds, dailyPicks, mcAgents, mcActivity, mcCampaignState, metaChatMessages, adBrands, adInspirations, claudeSessions, claudeSessionMessages, InsertClaudeSession } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -856,6 +856,7 @@ export async function upsertMarketProduct(row: typeof marketProducts.$inferInser
     available: row.available, totalVariants: row.totalVariants, variantsAvailable: row.variantsAvailable,
     lastSeenAt: row.lastSeenAt, active: true,
     ...(row.bestSellerRank != null ? { bestSellerRank: row.bestSellerRank } : {}),
+    ...(row.reviewCount != null ? { reviewCount: row.reviewCount } : {}),
     ...(row.estUnits != null ? { estUnits: row.estUnits } : {}),
     ...(row.estMethod != null ? { estMethod: row.estMethod } : {}),
     ...(row.estConfidence != null ? { estConfidence: row.estConfidence } : {}),
@@ -883,6 +884,13 @@ export async function getMarketChanges(userId: number, f: { storeId?: number; ch
   if (f.minScore) conds.push(gte(marketChanges.score, f.minScore));
   if (f.hours) conds.push(gte(marketChanges.detectedAt, new Date(Date.now() - f.hours * 3600_000)));
   return db.select().from(marketChanges).where(and(...conds)).orderBy(desc(marketChanges.detectedAt)).limit(Math.min(f.limit ?? 100, 500));
+}
+export async function getTopMarketProducts(userId: number, limit = 12) {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(marketProducts)
+    .where(and(eq(marketProducts.userId, userId), eq(marketProducts.active, true)))
+    .orderBy(desc(marketProducts.reviewCount), marketProducts.bestSellerRank)
+    .limit(Math.min(limit, 100));
 }
 export async function getUnenrichedMarketChanges(userId: number, limit = 15) {
   const db = await getDb(); if (!db) return [];
@@ -948,6 +956,39 @@ export async function getEtsyListingsByShop(shopId: number) {
 export async function getTopEtsyListings(userId: number, limit = 50) {
   const db = await getDb(); if (!db) return [];
   return db.select().from(etsyListings).where(eq(etsyListings.userId, userId)).orderBy(desc(etsyListings.estSales)).limit(Math.min(limit, 300));
+}
+
+// ─── Ad finds (Meta/TikTok scans persistiti) ──────────────────────────────────
+export async function insertAdFinds(rows: Array<typeof adFinds.$inferInsert>) {
+  const db = await getDb(); if (!db || rows.length === 0) return;
+  await db.insert(adFinds).values(rows.map((r) => ({ ...r, capturedAt: r.capturedAt ?? new Date() })));
+}
+export async function getRecentAdFinds(userId: number, source: string | undefined, hours = 168, limit = 60) {
+  const db = await getDb(); if (!db) return [];
+  const conds = [eq(adFinds.userId, userId), gte(adFinds.capturedAt, new Date(Date.now() - hours * 3600_000))];
+  if (source) conds.push(eq(adFinds.source, source));
+  return db.select().from(adFinds).where(and(...conds)).orderBy(desc(adFinds.adCount), desc(adFinds.capturedAt)).limit(Math.min(limit, 200));
+}
+
+// ─── Daily picks (prodotti in evidenza scelti dall'AI agent) ──────────────────
+export async function replaceDailyPicks(userId: number, pickDate: string, rows: Array<Omit<typeof dailyPicks.$inferInsert, "userId" | "pickDate">>) {
+  const db = await getDb(); if (!db) return;
+  await db.delete(dailyPicks).where(and(eq(dailyPicks.userId, userId), eq(dailyPicks.pickDate, pickDate)));
+  if (rows.length) await db.insert(dailyPicks).values(rows.map((r) => ({ ...r, userId, pickDate, createdAt: new Date() })));
+}
+export async function getDailyPicks(userId: number, pickDate: string) {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(dailyPicks).where(and(eq(dailyPicks.userId, userId), eq(dailyPicks.pickDate, pickDate))).orderBy(desc(dailyPicks.score));
+}
+export async function getLatestDailyPicks(userId: number) {
+  const db = await getDb(); if (!db) return [];
+  const latest = await db.select({ d: dailyPicks.pickDate }).from(dailyPicks).where(eq(dailyPicks.userId, userId)).orderBy(desc(dailyPicks.pickDate)).limit(1);
+  if (!latest[0]) return [];
+  return db.select().from(dailyPicks).where(and(eq(dailyPicks.userId, userId), eq(dailyPicks.pickDate, latest[0].d))).orderBy(desc(dailyPicks.score));
+}
+export async function setDailyPickChecked(userId: number, id: number, checked: boolean) {
+  const db = await getDb(); if (!db) return;
+  await db.update(dailyPicks).set({ checked }).where(and(eq(dailyPicks.id, id), eq(dailyPicks.userId, userId)));
 }
 
 // ─── Mission Control: agenti, activity, stato campagne ────────────────────────

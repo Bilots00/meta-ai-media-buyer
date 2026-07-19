@@ -25,6 +25,7 @@ export interface EtsyListing {
   isStarSeller: boolean;
   favorites: number | null;
   inCarts: number | null;
+  imageUrl: string | null;
   estSales: number | null;      // stima calibrata = reviewCount / reviewRate
   estRevenue: number | null;    // estSales * price
   estMethod: "calibrated" | "default-rate" | "none";
@@ -97,7 +98,7 @@ export function scoreEtsyOpportunity(l: { reviewCount: number; isBestseller: boo
 interface RawListing {
   listingId?: string | number; title?: string; price?: string; shopName?: string;
   reviewCount?: number; starRating?: number; isBestseller?: boolean; isStarSeller?: boolean;
-  favorites?: number; inCarts?: number;
+  favorites?: number; inCarts?: number; imageUrl?: string;
 }
 
 /** Normalizza un listing. Se reviewRate è nota (shop analizzato) usa il metodo calibrato. */
@@ -123,6 +124,7 @@ export function normalizeEtsyListing(raw: RawListing, reviewRate: number | null 
     isStarSeller,
     favorites: raw.favorites != null ? Number(raw.favorites) : null,
     inCarts: raw.inCarts != null ? Number(raw.inCarts) : null,
+    imageUrl: raw.imageUrl ? String(raw.imageUrl) : null,
     estSales,
     estRevenue: estSales != null && value != null ? Math.round(estSales * value) : null,
     estMethod,
@@ -217,15 +219,18 @@ const SHOP_SCHEMA = { type: "object", properties: {
 } };
 const SHOP_GRID_SCHEMA = { type: "object", properties: { listings: { type: "array", items: { type: "object", properties: {
   title: { type: "string" }, price: { type: "string" }, listingId: { type: "string" }, isBestseller: { type: "boolean" },
+  imageUrl: { type: "string", description: "product thumbnail image URL" },
 } } } } };
 const LISTING_SCHEMA = { type: "object", properties: {
   title: { type: "string" }, price: { type: "string" }, shopName: { type: "string" },
   itemReviewCount: { type: "integer", description: "reviews for THIS item only" },
   favorites: { type: "integer" }, inCarts: { type: "integer" }, isBestseller: { type: "boolean" },
+  imageUrl: { type: "string", description: "main product image URL" },
 } };
 const SEARCH_SCHEMA = { type: "object", properties: { listings: { type: "array", items: { type: "object", properties: {
   title: { type: "string" }, price: { type: "string" }, shopName: { type: "string" }, listingId: { type: "string" },
   reviewCount: { type: "integer" }, starRating: { type: "number" }, isBestseller: { type: "boolean" }, isStarSeller: { type: "boolean" },
+  imageUrl: { type: "string", description: "product thumbnail image URL" },
 } } } } };
 
 function shopUrlFrom(input: string): { url: string; slug: string } {
@@ -244,33 +249,44 @@ export async function analyzeEtsyShop(shopInput: string): Promise<EtsyShopStats>
 
 /** Analisi accurata di un singolo listing (metodo Alura per-prodotto). */
 export async function analyzeEtsyListing(listingUrl: string, reviewRate: number | null = null): Promise<EtsyListing> {
-  const json = await firecrawlScrapeJson(listingUrl, "Single Etsy listing page. Extract this item's own review count (next to the ITEM star rating, not the shop total), price, shop name, favorites, 'in X carts', and bestseller badge.", LISTING_SCHEMA);
+  const json = await firecrawlScrapeJson(listingUrl, "Single Etsy listing page. Extract this item's own review count (next to the ITEM star rating, not the shop total), price, shop name, favorites, 'in X carts', bestseller badge, and main product image URL.", LISTING_SCHEMA);
   const idm = listingUrl.match(/\/listing\/(\d+)/);
   return normalizeEtsyListing({
     listingId: idm ? idm[1] : "", title: json?.title, price: json?.price, shopName: json?.shopName,
     reviewCount: json?.itemReviewCount, favorites: json?.favorites, inCarts: json?.inCarts, isBestseller: json?.isBestseller,
+    imageUrl: json?.imageUrl,
   }, reviewRate);
 }
 
 /**
  * Analizzatore shop stile Alura: stats shop (rate calibrata) + i top-N listing con
  * vendite per-prodotto (deep-scrape delle singole pagine listing = review count accurato).
+ * La griglia viene letta su 2 pagine (~48 item) per una copertura più ampia.
  */
 export async function analyzeEtsyShopListings(shopInput: string, opts: { topN?: number } = {}): Promise<{ shop: EtsyShopStats; listings: EtsyListing[] }> {
   const { url, slug } = shopUrlFrom(shopInput);
-  const topN = Math.min(opts.topN ?? 12, 24);
+  const topN = Math.min(opts.topN ?? 18, 30);
   // 1) stats shop (rate)
   const shopJson = await firecrawlScrapeJson(url, "Etsy shop page. Extract total sales, total reviews, review average, opening year.", SHOP_SCHEMA);
   const shop = normalizeEtsyShop(shopJson ?? {});
-  // 2) griglia items → id + titoli (i card non espongono review count, li prendiamo dalle pagine)
-  const gridJson = await firecrawlScrapeJson(url, "Etsy shop items grid. For each product card extract title, price, listingId from the /listing/<id>/ link. Return up to 24 items.", SHOP_GRID_SCHEMA);
-  const grid: RawListing[] = Array.isArray(gridJson?.listings) ? gridJson.listings : [];
+  // 2) griglia items su 2 pagine → id + titoli + thumbnail (i card non espongono review count)
+  const gridPrompt = "Etsy shop items grid. For each product card extract title, price, listingId from the /listing/<id>/ link, bestseller badge, and thumbnail image URL. Return every item visible.";
+  const [g1, g2] = await Promise.all([
+    firecrawlScrapeJson(url, gridPrompt, SHOP_GRID_SCHEMA).catch(() => null),
+    firecrawlScrapeJson(`${url}?page=2`, gridPrompt, SHOP_GRID_SCHEMA).catch(() => null),
+  ]);
+  const grid: RawListing[] = [...(Array.isArray(g1?.listings) ? g1.listings : []), ...(Array.isArray(g2?.listings) ? g2.listings : [])];
   const seen = new Set<string>();
-  const ids = grid.map((g) => String(g.listingId ?? "")).filter((id) => id && !seen.has(id) && seen.add(id)).slice(0, topN);
+  const uniqueGrid = grid.filter((g) => { const id = String(g.listingId ?? ""); return id && !seen.has(id) && seen.add(id); });
+  const imgById = new Map(uniqueGrid.map((g) => [String(g.listingId), g.imageUrl ? String(g.imageUrl) : null]));
+  const ids = uniqueGrid.map((g) => String(g.listingId)).slice(0, topN);
   // 3) deep-scrape dei singoli listing per il review count reale → vendite calibrate
   const listings = (await mapLimit(ids, 3, async (id) => {
-    try { return await analyzeEtsyListing(`https://www.etsy.com/listing/${id}/`, shop.reviewRate); }
-    catch { return null; }
+    try {
+      const l = await analyzeEtsyListing(`https://www.etsy.com/listing/${id}/`, shop.reviewRate);
+      if (!l.imageUrl && imgById.get(id)) l.imageUrl = imgById.get(id)!;
+      return l;
+    } catch { return null; }
   })).filter((l): l is EtsyListing => !!l);
   listings.sort((a, b) => (b.estSales ?? -1) - (a.estSales ?? -1));
   return { shop: { ...shop, shopName: shop.shopName || slug }, listings };
@@ -279,7 +295,7 @@ export async function analyzeEtsyShopListings(shopInput: string, opts: { topN?: 
 /** Ricerca per keyword (cross-shop): bestseller di una nicchia. Rate default (non calibrabile per-shop). */
 export async function researchEtsyKeyword(query: string, opts: { limit?: number } = {}): Promise<{ query: string; listings: EtsyListing[] }> {
   const url = `https://www.etsy.com/search?q=${encodeURIComponent(query)}`;
-  const json = await firecrawlScrapeJson(url, "Etsy search results page. Extract each listing: title, price, shopName, listingId, reviewCount, starRating, bestseller and star-seller badges.", SEARCH_SCHEMA);
+  const json = await firecrawlScrapeJson(url, "Etsy search results page. Extract each listing: title, price, shopName, listingId, reviewCount, starRating, bestseller and star-seller badges, and thumbnail image URL.", SEARCH_SCHEMA);
   const raw: RawListing[] = Array.isArray(json?.listings) ? json.listings : [];
   const listings = rankEtsyListings(raw, null).slice(0, opts.limit ?? 30);
   return { query, listings };

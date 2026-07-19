@@ -517,6 +517,7 @@ export const marketProducts = mysqlTable("market_products", {
   lastSeenAt: timestamp("lastSeenAt"),
   active: boolean("active").default(true).notNull(),
   bestSellerRank: int("bestSellerRank"),
+  reviewCount: int("reviewCount"), // recensioni pubbliche sul prodotto (Judge.me/Loox/JSON-LD) = vendite minime confermate
   estUnits: int("estUnits"),
   estMethod: varchar("estMethod", { length: 24 }),
   estConfidence: varchar("estConfidence", { length: 8 }),
@@ -594,6 +595,7 @@ export const etsyListings = mysqlTable("etsy_listings", {
   listingId: varchar("listingId", { length: 32 }).notNull(),
   title: text("title"),
   url: text("url"),
+  imageUrl: text("imageUrl"),
   price: decimal("price", { precision: 12, scale: 2 }),
   currency: varchar("currency", { length: 8 }),
   reviewCount: int("reviewCount").default(0).notNull(),
@@ -606,6 +608,40 @@ export const etsyListings = mysqlTable("etsy_listings", {
   capturedAt: timestamp("capturedAt").defaultNow().notNull(),
 }, (t) => [uniqueIndex("uq_etsy_listing").on(t.shopId, t.listingId)]);
 export type EtsyListingRow = typeof etsyListings.$inferSelect;
+
+// ─── Ad Library finds (Meta/TikTok scans persistiti) + Daily Picks ────────────
+export const adFinds = mysqlTable("ad_finds", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  source: varchar("source", { length: 12 }).notNull(), // meta | tiktok
+  title: text("title").notNull(),
+  domain: varchar("domain", { length: 255 }),
+  url: text("url"),
+  imageUrl: text("imageUrl"),
+  adCount: int("adCount"),
+  views: bigint("views", { mode: "number" }),
+  likes: int("likes"),
+  isShopify: boolean("isShopify").default(false).notNull(),
+  keyword: varchar("keyword", { length: 191 }),
+  capturedAt: timestamp("capturedAt").defaultNow().notNull(),
+});
+export type AdFind = typeof adFinds.$inferSelect;
+
+export const dailyPicks = mysqlTable("daily_picks", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  pickDate: varchar("pickDate", { length: 10 }).notNull(), // YYYY-MM-DD Europe/Rome
+  source: varchar("source", { length: 12 }).notNull(), // meta | tiktok | etsy | shopify
+  title: text("title").notNull(),
+  url: text("url"),
+  imageUrl: text("imageUrl"),
+  price: varchar("price", { length: 32 }),
+  reason: text("reason"), // perché l'agente l'ha scelto (brief)
+  score: int("score"),
+  checked: boolean("checked").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type DailyPick = typeof dailyPicks.$inferSelect;
 
 // ─── Mission Control: team di agenti AI del reparto Paid Advertising ──────────
 export const mcAgents = mysqlTable("mc_agents", {
