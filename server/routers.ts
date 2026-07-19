@@ -52,8 +52,9 @@ import {
 } from "./adsLibraryService";
 import {
   addMarketStore, removeMarketStore, listMarketStores, updateMarketStore,
-  getMarketChanges, updateMarketChange,
+  getMarketChanges, updateMarketChange, getMarketStore, getMarketProducts,
 } from "./db";
+import { scanMetaAdLibrary, scanTikTokTopAds } from "./adLibrary";
 import {
   runAllStoresCycle, runStoreMonitorCycle, getMarketConfig, saveMarketConfig, generateOpportunityBrief,
 } from "./marketIntelService";
@@ -154,6 +155,29 @@ export const appRouter = router({
       return { success: true, ...r } as const;
     }),
     etsyShopDetail: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ ctx, input }) => getEtsyShopDetail(ctx.user.id, input.id)),
+    // Shopify store detail (riapertura: prodotti tracciati di uno store salvato)
+    storeDetail: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ ctx, input }) => {
+      const store = await getMarketStore(ctx.user.id, input.id);
+      if (!store) return null;
+      return { store, products: await getMarketProducts(input.id) };
+    }),
+    // Ad Library scanner (metodo Kalodata/PiPiads/Minea/Winning Hunter)
+    metaAdsScan: protectedProcedure.input(z.object({ keyword: z.string().min(2), country: z.string().optional(), minAds: z.number().min(1).max(100).optional(), shopifyOnly: z.boolean().optional() }))
+      .mutation(async ({ input }) => scanMetaAdLibrary(input)),
+    tiktokScan: protectedProcedure.input(z.object({ keyword: z.string().optional(), region: z.string().optional() }))
+      .mutation(async ({ input }) => scanTikTokTopAds(input)),
+    // GLITCH Scanner: Meta Ad Library → solo store Shopify → (opz.) aggiungi a watchlist
+    glitchScan: protectedProcedure.input(z.object({ keyword: z.string().min(2), country: z.string().optional(), minAds: z.number().min(1).max(100).optional(), addToWatchlist: z.boolean().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const r = await scanMetaAdLibrary({ keyword: input.keyword, country: input.country, minAds: input.minAds, shopifyOnly: true });
+        let added = 0;
+        if (input.addToWatchlist) {
+          for (const a of r.advertisers) {
+            if (a.isShopify && a.domain) { try { await addMarketStore(ctx.user.id, { label: a.advertiser.slice(0, 200), domain: a.domain, isShopify: true }); added++; } catch { /* dup */ } }
+          }
+        }
+        return { ...r, added };
+      }),
   }),
 
   // ─── Social Organico: AI Manager chat + Bozze ───────────────────────────────
