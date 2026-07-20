@@ -1370,3 +1370,39 @@ export async function attachClaudeAttachmentsToMessage(ids: number[], messageId:
   await db.update(claudeAttachments).set({ messageId })
     .where(and(inArray(claudeAttachments.id, ids), eq(claudeAttachments.userId, userId)));
 }
+
+// Trascrizione a posteriori: l'agente scarica il vocale, lo passa a Whisper e
+// rimanda qui il testo, che sostituisce il placeholder nel messaggio.
+export async function updateClaudeMessageText(id: number, text: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(claudeSessionMessages).set({ text }).where(eq(claudeSessionMessages.id, id));
+}
+
+export async function updateClaudeAttachmentTranscript(id: number, transcript: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(claudeAttachments).set({ transcript }).where(eq(claudeAttachments.id, id));
+}
+
+export async function getClaudeMessageById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(claudeSessionMessages).where(eq(claudeSessionMessages.id, id)).limit(1);
+  return rows[0];
+}
+
+// Allegati di un gruppo di messaggi (senza byte): serve all'agente per sapere
+// che c'e' un vocale da trascrivere.
+export async function getClaudeAttachmentsForMessages(messageIds: number[]) {
+  const db = await getDb();
+  if (!db || !messageIds.length) return [];
+  return db.select({
+    id: claudeAttachments.id,
+    messageId: claudeAttachments.messageId,
+    filename: claudeAttachments.filename,
+    mimeType: claudeAttachments.mimeType,
+    kind: claudeAttachments.kind,
+    transcript: claudeAttachments.transcript,
+  }).from(claudeAttachments).where(inArray(claudeAttachments.messageId, messageIds));
+}

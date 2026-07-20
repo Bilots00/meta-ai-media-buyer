@@ -30,50 +30,102 @@ export type SpeechState = {
   stop: () => void;
 };
 
+// Spezza in frasi: su Chrome Android `pause()`/`resume()` sono rotti (la voce
+// non riparte piu'). Leggendo una frase alla volta, "pausa" = mi fermo a fine
+// frase e ricordo dove sono, "riprendi" = riparto da li'. Cosi' funziona ovunque.
+function splitSentences(text: string): string[] {
+  const parts = text.match(/[^.!?…]+[.!?…]+|\S[^.!?…]*$/g) ?? [text];
+  // Frasi lunghissime spezzate a ~220 caratteri: alcune voci troncano da sole.
+  const out: string[] = [];
+  for (const p of parts) {
+    const s = p.trim();
+    if (!s) continue;
+    if (s.length <= 220) { out.push(s); continue; }
+    for (const chunk of s.match(/.{1,220}(\s|$)/g) ?? [s]) {
+      const c = chunk.trim();
+      if (c) out.push(c);
+    }
+  }
+  return out;
+}
+
 export function useSpeech(): SpeechState {
   const [speakingId, setSpeakingId] = useState<number | null>(null);
   const [paused, setPaused] = useState(false);
   const supported = typeof window !== "undefined" && "speechSynthesis" in window;
-  const utterRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const chunksRef = useRef<string[]>([]);
+  const idxRef = useRef(0);
+  const pausedRef = useRef(false);
+  const idRef = useRef<number | null>(null);
 
   const stop = useCallback(() => {
     if (!supported) return;
+    pausedRef.current = false;
+    chunksRef.current = [];
+    idxRef.current = 0;
+    idRef.current = null;
     window.speechSynthesis.cancel();
-    utterRef.current = null;
     setSpeakingId(null);
     setPaused(false);
+  }, [supported]);
+
+  // Legge la frase corrente e, a fine frase, incatena la successiva.
+  const speakFrom = useCallback((index: number) => {
+    if (!supported) return;
+    const chunks = chunksRef.current;
+    if (index >= chunks.length) {
+      idRef.current = null;
+      chunksRef.current = [];
+      idxRef.current = 0;
+      setSpeakingId(null);
+      setPaused(false);
+      return;
+    }
+    idxRef.current = index;
+    const u = new SpeechSynthesisUtterance(chunks[index]);
+    u.lang = "it-IT";
+    u.rate = 1.02;
+    const itVoice = window.speechSynthesis.getVoices().find((v) => v.lang?.toLowerCase().startsWith("it"));
+    if (itVoice) u.voice = itVoice;
+    u.onend = () => {
+      // In pausa non si prosegue: si resta fermi su questa frase.
+      if (pausedRef.current) return;
+      speakFrom(index + 1);
+    };
+    u.onerror = () => { if (!pausedRef.current) speakFrom(index + 1); };
+    window.speechSynthesis.speak(u);
   }, [supported]);
 
   const speak = useCallback((id: number, text: string) => {
     if (!supported) return;
     // Ri-toccare il messaggio che sta parlando = stop (comportamento da player).
-    if (speakingId === id) { stop(); return; }
+    if (idRef.current === id) { stop(); return; }
     window.speechSynthesis.cancel();
     const clean = stripMarkdown(text);
     if (!clean) return;
-    const u = new SpeechSynthesisUtterance(clean);
-    u.lang = "it-IT";
-    u.rate = 1.02;
-    const itVoice = window.speechSynthesis.getVoices().find((v) => v.lang?.toLowerCase().startsWith("it"));
-    if (itVoice) u.voice = itVoice;
-    u.onend = () => { setSpeakingId(null); setPaused(false); utterRef.current = null; };
-    u.onerror = () => { setSpeakingId(null); setPaused(false); utterRef.current = null; };
-    utterRef.current = u;
+    chunksRef.current = splitSentences(clean);
+    pausedRef.current = false;
+    idRef.current = id;
     setPaused(false);
     setSpeakingId(id);
-    window.speechSynthesis.speak(u);
-  }, [supported, speakingId, stop]);
+    speakFrom(0);
+  }, [supported, stop, speakFrom]);
 
   const toggle = useCallback(() => {
-    if (!supported || speakingId == null) return;
-    if (window.speechSynthesis.paused) {
-      window.speechSynthesis.resume();
+    if (!supported || idRef.current == null) return;
+    if (pausedRef.current) {
+      // Riprendi = ricomincio dalla frase su cui mi ero fermato. Niente resume(),
+      // che su Android non fa ripartire nulla.
+      pausedRef.current = false;
       setPaused(false);
+      window.speechSynthesis.cancel();
+      speakFrom(idxRef.current);
     } else {
-      window.speechSynthesis.pause();
+      pausedRef.current = true;
       setPaused(true);
+      window.speechSynthesis.cancel(); // taglia la frase in corso, la riprendo da capo
     }
-  }, [supported, speakingId]);
+  }, [supported, speakFrom]);
 
   // Cambiare pagina mentre parla lascerebbe la voce accesa a vuoto.
   useEffect(() => () => { if (supported) window.speechSynthesis.cancel(); }, [supported]);

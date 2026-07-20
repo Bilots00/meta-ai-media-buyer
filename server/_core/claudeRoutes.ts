@@ -7,9 +7,15 @@ import {
   getClaudeSessionMessages,
   insertClaudeMessage,
   getPendingClaudeMessages,
+  getClaudeAttachmentsForMessages,
   recordClaudeReply,
   updateClaudeSession,
   getClaudeAttachmentById,
+  insertClaudeAttachment,
+  attachClaudeAttachmentsToMessage,
+  updateClaudeMessageText,
+  updateClaudeAttachmentTranscript,
+  getClaudeMessageById,
   getAllUserSettings,
   upsertUserSetting,
 } from "../db";
@@ -51,7 +57,25 @@ export function registerClaudeRoutes(app: Express) {
     try {
       const limit = Math.min(parseInt(String(req.query.limit ?? "20"), 10) || 20, 100);
       const pending = await getPendingClaudeMessages(limit);
-      res.json({ success: true, count: pending.length, messages: pending });
+      // Gli allegati viaggiano col messaggio: l'agente deve poter vedere che c'e'
+      // un vocale da trascrivere (e con che id) senza una seconda chiamata.
+      const atts = await getClaudeAttachmentsForMessages(pending.map((m) => m.messageId));
+      const byMsg = new Map<number, typeof atts>();
+      for (const a of atts) {
+        if (a.messageId == null) continue;
+        const list = byMsg.get(a.messageId) ?? [];
+        list.push(a);
+        byMsg.set(a.messageId, list);
+      }
+      const messages = pending.map((m) => ({
+        ...m,
+        attachments: (byMsg.get(m.messageId) ?? []).map((a) => ({
+          id: a.id, filename: a.filename, mimeType: a.mimeType,
+          kind: a.kind, transcript: a.transcript,
+          url: `/api/claude/attachment/${a.id}`,
+        })),
+      }));
+      res.json({ success: true, count: messages.length, messages });
     } catch (err) {
       console.warn("[claude/pending] error:", err);
       res.status(500).json({ error: "pending failed" });
@@ -127,6 +151,9 @@ export function registerClaudeRoutes(app: Express) {
         replyToId: replyToId != null ? Number(replyToId) : undefined,
         source: source ? String(source) : undefined,
       });
+      // Risposta vocale: l'agente ha gia' caricato l'audio e passa qui il suo id.
+      const attachmentIds = Array.isArray(req.body?.attachmentIds) ? req.body.attachmentIds.map(Number) : [];
+      if (attachmentIds.length) await attachClaudeAttachmentsToMessage(attachmentIds, messageId, OWNER_USER_ID);
       res.json({ success: true, messageId, sessionId: Number(sessionId) });
     } catch (err) {
       console.warn("[claude/reply] error:", err);
@@ -270,6 +297,67 @@ export function registerClaudeRoutes(app: Express) {
     } catch (err) {
       console.warn("[claude/attachment] error:", err);
       res.status(500).json({ error: "attachment failed" });
+    }
+  });
+
+  // Agente -> carica un allegato (tipicamente il vocale di risposta generato con
+  // edge-tts sul VPS). Stesso giro del bot Telegram: se Andrea scrive col vocale,
+  // l'agente risponde col vocale.
+  app.post("/api/claude/attachment", async (req: Request, res: Response) => {
+    if (!checkSecret(req, res)) return;
+    try {
+      const { sessionId, messageId, filename, mimeType, kind, transcript, dataBase64 } = req.body ?? {};
+      if (!sessionId || !filename || !dataBase64) {
+        res.status(400).json({ error: "sessionId, filename and dataBase64 are required" });
+        return;
+      }
+      const data = Buffer.from(String(dataBase64), "base64");
+      if (data.length > 15 * 1024 * 1024) {
+        res.status(413).json({ error: "attachment too large (max 15MB)" });
+        return;
+      }
+      const id = await insertClaudeAttachment({
+        userId: OWNER_USER_ID,
+        sessionId: Number(sessionId),
+        messageId: messageId != null ? Number(messageId) : null,
+        filename: String(filename),
+        mimeType: String(mimeType || "application/octet-stream"),
+        kind: (kind === "voice" || kind === "image" ? kind : "file") as "voice" | "image" | "file",
+        transcript: transcript ? String(transcript) : null,
+        data,
+      });
+      res.json({ success: true, id, url: `/api/claude/attachment/${id}` });
+    } catch (err) {
+      console.warn("[claude/attachment upload] error:", err);
+      res.status(500).json({ error: "upload failed" });
+    }
+  });
+
+  // Agente -> rimanda la trascrizione di un vocale (Whisper gira sul VPS, dove
+  // c'e' OPENAI_API_KEY). Sostituisce il placeholder nel messaggio, cosi' nella
+  // chat si legge cosa e' stato detto invece di "[senza trascrizione]".
+  app.post("/api/claude/transcription", async (req: Request, res: Response) => {
+    if (!checkSecret(req, res)) return;
+    try {
+      const { messageId, attachmentId, transcript } = req.body ?? {};
+      if (!transcript) {
+        res.status(400).json({ error: "transcript is required" });
+        return;
+      }
+      const text = String(transcript).trim();
+      if (attachmentId != null) await updateClaudeAttachmentTranscript(Number(attachmentId), text);
+      if (messageId != null) {
+        const msg = await getClaudeMessageById(Number(messageId));
+        if (msg) {
+          // Tiene la coda "[allegati] …" e sostituisce solo la parte parlata.
+          const rest = msg.text.includes("[allegati]") ? msg.text.slice(msg.text.indexOf("[allegati]")) : "";
+          await updateClaudeMessageText(Number(messageId), rest ? `${text}\n\n${rest}` : text);
+        }
+      }
+      res.json({ success: true });
+    } catch (err) {
+      console.warn("[claude/transcription] error:", err);
+      res.status(500).json({ error: "transcription failed" });
     }
   });
 
