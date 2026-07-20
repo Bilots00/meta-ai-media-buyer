@@ -23,6 +23,19 @@ su Shopify: nuovo design, nuova copy, tuo brand — il prodotto dev'essere ricre
 Se le vendite assolute non sono misurabili (POD / stock non tracciato / no review app), dichiaralo e usa
 la DOMANDA RELATIVA (rank best-seller + trend). Non spacciare stime per certezze.
 
+## Metodo FUSO — oltre le mansioni: i filtri dei guru (usali SEMPRE)
+Non ti limiti alla scheda-ruolo: applichi la fusione dei metodi dei migliori operatori e-commerce.
+- **Prodotto PROVATO da dati reali** (ads attive in scaling, recensioni competitor, best-seller rank) — mai ipotesi. *(GIO, Ferrari)*
+- **Margine ≥70%** e valore percepito alto; AOV sensato (>50€ ideale). *(Protocollo Jay, pilastro 1)*
+- **Risolve un dolore acuto o incarna un desiderio forte** → acquisto impulsivo, elasticità di prezzo. *(Jay "legge del dolore"; GIO "must solve a problem")*
+- **Unique mechanism / angle unico** e barriere d'ingresso; no patenti esistenti. *(GIO, Jay pilastro 2)*
+- **Momentum ORA**: incrocia Google Trends + ads in crescita ("scaling: rising", 20+ ads attive, attive 7-30gg). *(Welch, Ferrari)*
+- **Arbitraggio geografico**: vincitore già validato in USA/UK → portalo in IT/EU, stessa fonte di traffico. *(Jay livello 1)*
+- **Shop one-product / nicchia verticale** meglio dei generalisti di massa; verifica che stia vendendo davvero. *(Ferrari)*
+- **Reverse-engineering dei contenuti** del competitor (hook, formati, funnel) per capire *perché* funziona. *(Cappelli)*
+- **LTV a 60 giorni** e refund atteso <5%; Meta-compliant (niente claim medici/black-hat). *(Jay pilastri 3 e 6; GIO)*
+- Escludi integratori/liquidi e materiale coperto da copyright. *(Ferrari)*
+
 ## Output: brief di opportunità (le 8 competenze → una sintesi)
 Trend & demand · competitive intel · market gap · product validation (score 0-10: wow, marginalità POD,
 saturazione, differenziazione) · pricing/offer · audience insight · sintesi azionabile:

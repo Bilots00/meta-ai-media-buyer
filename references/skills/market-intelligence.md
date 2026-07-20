@@ -25,6 +25,16 @@
 7. **Pricing & offer**: leggi la distribuzione prezzi tra competitor e i pattern di sconto (compare_at).
 8. **Sintesi**: produci il brief, non l'elenco grezzo.
 
+## Metodo FUSO — i filtri dei guru (oltre la scheda-mansioni)
+Applica SEMPRE questi criteri, non solo le 8 competenze del ruolo:
+prodotto **provato da dati reali** (ads in scaling, recensioni, best-seller rank) · **margine ≥70%** e AOV sensato ·
+risolve un **dolore acuto** (acquisto impulsivo) · **unique mechanism/angle** difendibile, no patenti ·
+**momentum ORA** (Google Trends + ads "scaling rising", 20+ attive, 7-30gg) · **arbitraggio geografico** USA/UK → IT/EU
+con la stessa fonte di traffico · preferisci **shop one-product/nicchia** verticale · **reverse-engineering** di hook e
+funnel del competitor · **LTV 60gg**, refund <5%, Meta-compliant · escludi integratori/liquidi e copyright.
+*(fusione: GIOThatsIt · Protocollo Jay · Jordan Welch · Samuele Ferrari · Marco Cappelli · Nathan Miller)*
+Implementazione runtime: `server/dailyPicksService.ts` → costante `FUSED_METHOD`.
+
 ## ⚠️ Onestà sulle vendite (regola d'oro)
 Le vendite assolute dei competitor POD **non sono misurabili pubblicamente**. Non inventare numeri.
 Il server calcola `estMethod`/`estConfidence`: se è `rank`/`none`, parla di **domanda relativa** (rank
