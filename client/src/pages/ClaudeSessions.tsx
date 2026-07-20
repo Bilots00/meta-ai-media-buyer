@@ -12,7 +12,8 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { useSpeech, useVoiceRecorder } from "@/hooks/useSpeech";
 
-type PendingAttachment = { id: number; filename: string; mimeType: string; size: number; kind: string };
+type PendingAttachment = { id: number; filename: string; mimeType: string; size: number; kind: string; url: string };
+type Lightbox = { url: string; filename: string };
 
 function fmtSize(bytes: number): string {
   return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -59,6 +60,7 @@ export default function ClaudeSessions() {
   const [mobileView, setMobileView] = useState<"list" | "chat">("list");
   const [pendingAtts, setPendingAtts] = useState<PendingAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [lightbox, setLightbox] = useState<Lightbox | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const utils = trpc.useUtils();
@@ -154,6 +156,7 @@ export default function ClaudeSessions() {
         setPendingAtts((prev) => [...prev, {
           id: r.id, filename: file.name, mimeType: file.type,
           size: r.size, kind: file.type.startsWith("image/") ? "image" : "file",
+          url: r.url,
         }]);
       }
     } catch (e) {
@@ -169,8 +172,11 @@ export default function ClaudeSessions() {
   async function startVoice() {
     try {
       await voice.start();
-    } catch {
-      toast.error("Microfono non disponibile: controlla i permessi del browser");
+    } catch (e) {
+      // Mostra la causa VERA: "controlla i permessi" nascondeva il motivo reale
+      // (microfono occupato, HTTPS mancante, nessun device…).
+      voice.cancel();
+      toast.error(e instanceof Error ? e.message : "Microfono non disponibile", { duration: 7000 });
     }
   }
 
@@ -210,6 +216,39 @@ export default function ClaudeSessions() {
 
   return (
     <div className="flex gap-4 h-[calc(100vh-8rem)] relative">
+      {/* Visualizzatore immagini a schermo intero: tocca fuori (o la X) per chiudere */}
+      {lightbox && (
+        <div
+          onClick={() => setLightbox(null)}
+          className="fixed inset-0 z-[60] flex flex-col items-center justify-center p-4"
+          style={{ background: "oklch(0.05 0.01 260 / 0.94)" }}
+        >
+          <div className="absolute top-4 right-4 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+            <a
+              href={`${lightbox.url}?download=1`}
+              className="px-3 py-2 rounded-xl text-xs text-white"
+              style={{ background: "var(--gradient-primary)" }}
+            >
+              Scarica
+            </a>
+            <button
+              onClick={() => setLightbox(null)}
+              className="w-10 h-10 rounded-full flex items-center justify-center text-white"
+              style={{ background: "oklch(0.2 0.015 260)", border: BORDER }}
+              title="Chiudi"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <img
+            src={lightbox.url}
+            alt={lightbox.filename}
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-[82vh] max-w-full object-contain rounded-lg"
+          />
+          <div className="mt-3 text-xs text-muted-foreground truncate max-w-full px-4">{lightbox.filename}</div>
+        </div>
+      )}
       {/* Overlay lettura vocale (stile Gemini): pausa/riprendi sempre a portata,
           anche se scrolli via dal messaggio che sta parlando. */}
       {speech.speakingId != null && (
@@ -430,10 +469,23 @@ export default function ClaudeSessions() {
                     <div className="mt-2 space-y-2">
                       {m.attachments.map((a) => {
                         if (a.kind === "image") {
+                          // Tocca per espandere: tornando indietro nella chat le
+                          // immagini restano visibili e ingrandibili, non solo nomi.
                           return (
-                            <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="block">
-                              <img src={a.url} alt={a.filename} className="rounded-lg max-h-60 w-auto" style={{ border: BORDER }} />
-                            </a>
+                            <button
+                              key={a.id}
+                              onClick={() => setLightbox({ url: a.url, filename: a.filename })}
+                              className="block w-full text-left"
+                              title="Tocca per ingrandire"
+                            >
+                              <img
+                                src={a.url}
+                                alt={a.filename}
+                                loading="lazy"
+                                className="rounded-lg max-h-60 w-auto"
+                                style={{ border: BORDER }}
+                              />
+                            </button>
                           );
                         }
                         if (a.kind === "voice") {
@@ -508,24 +560,46 @@ export default function ClaudeSessions() {
           {/* Allegati pronti da inviare */}
           {pendingAtts.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-2">
-              {pendingAtts.map((a) => (
-                <span
-                  key={a.id}
-                  className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs"
-                  style={{ background: "oklch(0.2 0.015 260 / 0.6)", border: BORDER }}
-                >
-                  <FileText className="w-3 h-3 shrink-0" />
-                  <span className="truncate max-w-[140px]">{a.filename}</span>
-                  <span className="text-muted-foreground">{fmtSize(a.size)}</span>
-                  <button
-                    onClick={() => setPendingAtts((p) => p.filter((x) => x.id !== a.id))}
-                    className="text-muted-foreground hover:text-destructive"
-                    title="Togli"
+              {pendingAtts.map((a) =>
+                a.kind === "image" ? (
+                  /* Immagine: si vede subito COSA stai allegando, non solo il nome */
+                  <span key={a.id} className="relative group">
+                    <button onClick={() => setLightbox({ url: a.url, filename: a.filename })} className="block">
+                      <img
+                        src={a.url}
+                        alt={a.filename}
+                        className="w-16 h-16 object-cover rounded-lg"
+                        style={{ border: BORDER }}
+                      />
+                    </button>
+                    <button
+                      onClick={() => setPendingAtts((p) => p.filter((x) => x.id !== a.id))}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center text-white shadow"
+                      style={{ background: "oklch(0.5 0.2 25)" }}
+                      title="Togli"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ) : (
+                  <span
+                    key={a.id}
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs h-8"
+                    style={{ background: "oklch(0.2 0.015 260 / 0.6)", border: BORDER }}
                   >
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              ))}
+                    <FileText className="w-3 h-3 shrink-0" />
+                    <span className="truncate max-w-[140px]">{a.filename}</span>
+                    <span className="text-muted-foreground">{fmtSize(a.size)}</span>
+                    <button
+                      onClick={() => setPendingAtts((p) => p.filter((x) => x.id !== a.id))}
+                      className="text-muted-foreground hover:text-destructive"
+                      title="Togli"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )
+              )}
             </div>
           )}
 
@@ -576,7 +650,9 @@ export default function ClaudeSessions() {
               {/* Come Telegram: vuoto = microfono, appena scrivi = invio */}
               <Button
                 onClick={hasText || pendingAtts.length ? submit : startVoice}
-                disabled={send.isPending || uploading || (!hasText && !pendingAtts.length && !voice.supported)}
+                // Mai disabilitato sul microfono: se non e' disponibile deve
+                // DIRTI perche', non restare muto al tocco.
+                disabled={send.isPending || uploading}
                 className="h-11 shrink-0"
                 style={{ background: "var(--gradient-primary)" }}
                 title={hasText || pendingAtts.length ? "Invia" : "Tieni premuto per un vocale"}

@@ -132,20 +132,56 @@ export function useVoiceRecorder(): VoiceRecorder {
   }, []);
 
   const start = useCallback(async () => {
-    if (!supported) return;
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (!supported) throw new Error("Questo browser non espone il microfono (serve HTTPS e un browser recente).");
+
+    // Se un tentativo precedente ha lasciato lo stream aperto, il microfono
+    // risulta "occupato" (NotReadableError) e non si riapre piu' fino al reload:
+    // qui si rilascia sempre tutto prima di richiederlo.
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e: any) {
+      const name = e?.name || "";
+      if (name === "NotAllowedError" || name === "SecurityError") {
+        throw new Error("Permesso microfono negato. Tocca il lucchetto accanto all'indirizzo → Autorizzazioni → Microfono → Consenti.");
+      }
+      if (name === "NotFoundError" || name === "OverconstrainedError") {
+        throw new Error("Nessun microfono trovato su questo dispositivo.");
+      }
+      if (name === "NotReadableError" || name === "AbortError") {
+        throw new Error("Microfono occupato da un'altra app (o da un'altra scheda). Chiudila e riprova.");
+      }
+      throw new Error(`Microfono non disponibile (${name || "errore sconosciuto"}).`);
+    }
+
     streamRef.current = stream;
     chunksRef.current = [];
     finalRef.current = "";
     setTranscript("");
     setSeconds(0);
 
-    const mr = new MediaRecorder(stream);
-    mr.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data); };
-    mr.start();
-    recRef.current = mr;
+    // Da qui in poi, se qualcosa fallisce va rilasciato lo stream: senza questo
+    // il microfono resta bloccato e ogni tentativo successivo fallisce.
+    try {
+      const mr = new MediaRecorder(stream);
+      mr.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data); };
+      mr.start();
+      recRef.current = mr;
+    } catch (e: any) {
+      stream.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      throw new Error(`Registrazione non avviabile (${e?.name || "errore"}).`);
+    }
 
-    // La trascrizione e' best-effort: se il browser non ce l'ha, resta solo l'audio.
+    setRecording(true);
+    timerRef.current = window.setInterval(() => setSeconds((s) => s + 1), 1000);
+
+    // La trascrizione e' un extra e parte DOPO che l'audio sta gia' registrando:
+    // su Android il riconoscimento vocale litiga col microfono, quindi se fallisce
+    // deve restare comunque il vocale. Mai far cadere la registrazione per questo.
     const sr = getRecognition();
     if (sr) {
       sr.lang = "it-IT";
@@ -160,12 +196,16 @@ export function useVoiceRecorder(): VoiceRecorder {
         }
         setTranscript((finalRef.current + interim).trim());
       };
-      sr.onerror = () => {};
-      try { sr.start(); srRef.current = sr; } catch {}
+      sr.onerror = (ev: any) => {
+        // "not-allowed"/"service-not-allowed": niente trascrizione, l'audio resta.
+        console.warn("[voce] riconoscimento non disponibile:", ev?.error);
+        srRef.current = null;
+      };
+      try { sr.start(); srRef.current = sr; } catch (e) {
+        console.warn("[voce] riconoscimento non avviato:", e);
+        srRef.current = null;
+      }
     }
-
-    setRecording(true);
-    timerRef.current = window.setInterval(() => setSeconds((s) => s + 1), 1000);
   }, [supported]);
 
   const stop = useCallback(async (): Promise<{ blob: Blob; transcript: string } | null> => {
