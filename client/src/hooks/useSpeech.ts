@@ -30,71 +30,56 @@ export type SpeechState = {
   stop: () => void;
 };
 
-// Spezza in frasi: su Chrome Android `pause()`/`resume()` sono rotti (la voce
-// non riparte piu'). Leggendo una frase alla volta, "pausa" = mi fermo a fine
-// frase e ricordo dove sono, "riprendi" = riparto da li'. Cosi' funziona ovunque.
-function splitSentences(text: string): string[] {
-  const parts = text.match(/[^.!?…]+[.!?…]+|\S[^.!?…]*$/g) ?? [text];
-  // Frasi lunghissime spezzate a ~220 caratteri: alcune voci troncano da sole.
-  const out: string[] = [];
-  for (const p of parts) {
-    const s = p.trim();
-    if (!s) continue;
-    if (s.length <= 220) { out.push(s); continue; }
-    for (const chunk of s.match(/.{1,220}(\s|$)/g) ?? [s]) {
-      const c = chunk.trim();
-      if (c) out.push(c);
-    }
-  }
-  return out;
-}
-
 export function useSpeech(): SpeechState {
   const [speakingId, setSpeakingId] = useState<number | null>(null);
   const [paused, setPaused] = useState(false);
   const supported = typeof window !== "undefined" && "speechSynthesis" in window;
-  const chunksRef = useRef<string[]>([]);
-  const idxRef = useRef(0);
+  // Testo letto per intero, in un colpo solo. `offsetRef` e' il punto esatto
+  // raggiunto: l'evento onboundary lo aggiorna parola per parola, quindi in
+  // pausa si sa dove si era arrivati e si riprende da li' — come un vocale.
+  const textRef = useRef("");
+  const offsetRef = useRef(0);
   const pausedRef = useRef(false);
   const idRef = useRef<number | null>(null);
 
   const stop = useCallback(() => {
     if (!supported) return;
     pausedRef.current = false;
-    chunksRef.current = [];
-    idxRef.current = 0;
+    textRef.current = "";
+    offsetRef.current = 0;
     idRef.current = null;
     window.speechSynthesis.cancel();
     setSpeakingId(null);
     setPaused(false);
   }, [supported]);
 
-  // Legge la frase corrente e, a fine frase, incatena la successiva.
-  const speakFrom = useCallback((index: number) => {
+  // Legge da un punto in poi. `base` e' l'offset nel testo completo, cosi'
+  // onboundary continua a riportare la posizione assoluta.
+  const speakFrom = useCallback((base: number) => {
     if (!supported) return;
-    const chunks = chunksRef.current;
-    if (index >= chunks.length) {
-      idRef.current = null;
-      chunksRef.current = [];
-      idxRef.current = 0;
-      setSpeakingId(null);
-      setPaused(false);
-      return;
-    }
-    idxRef.current = index;
-    const u = new SpeechSynthesisUtterance(chunks[index]);
+    const full = textRef.current;
+    if (base >= full.length) { stop(); return; }
+    const u = new SpeechSynthesisUtterance(full.slice(base));
     u.lang = "it-IT";
     u.rate = 1.02;
     const itVoice = window.speechSynthesis.getVoices().find((v) => v.lang?.toLowerCase().startsWith("it"));
     if (itVoice) u.voice = itVoice;
-    u.onend = () => {
-      // In pausa non si prosegue: si resta fermi su questa frase.
-      if (pausedRef.current) return;
-      speakFrom(index + 1);
+    // Segna dove siamo arrivati: e' cio' che rende la ripresa esatta.
+    u.onboundary = (e: SpeechSynthesisEvent) => {
+      if (typeof e.charIndex === "number") offsetRef.current = base + e.charIndex;
     };
-    u.onerror = () => { if (!pausedRef.current) speakFrom(index + 1); };
+    u.onend = () => {
+      // In pausa il cancel() scatena onend: non e' la fine del testo.
+      if (pausedRef.current) return;
+      offsetRef.current = 0;
+      idRef.current = null;
+      textRef.current = "";
+      setSpeakingId(null);
+      setPaused(false);
+    };
+    u.onerror = () => { if (!pausedRef.current) { setSpeakingId(null); idRef.current = null; } };
     window.speechSynthesis.speak(u);
-  }, [supported]);
+  }, [supported, stop]);
 
   const speak = useCallback((id: number, text: string) => {
     if (!supported) return;
@@ -103,7 +88,8 @@ export function useSpeech(): SpeechState {
     window.speechSynthesis.cancel();
     const clean = stripMarkdown(text);
     if (!clean) return;
-    chunksRef.current = splitSentences(clean);
+    textRef.current = clean;
+    offsetRef.current = 0;
     pausedRef.current = false;
     idRef.current = id;
     setPaused(false);
@@ -114,16 +100,16 @@ export function useSpeech(): SpeechState {
   const toggle = useCallback(() => {
     if (!supported || idRef.current == null) return;
     if (pausedRef.current) {
-      // Riprendi = ricomincio dalla frase su cui mi ero fermato. Niente resume(),
-      // che su Android non fa ripartire nulla.
+      // Riprendi: riparte dall'ultima parola pronunciata, non da capo.
       pausedRef.current = false;
       setPaused(false);
-      window.speechSynthesis.cancel();
-      speakFrom(idxRef.current);
+      speakFrom(offsetRef.current);
     } else {
+      // Pausa: resume() di Chrome Android e' rotto, quindi si taglia qui e si
+      // tiene l'offset. Per chi ascolta e' identico a una pausa vera.
       pausedRef.current = true;
       setPaused(true);
-      window.speechSynthesis.cancel(); // taglia la frase in corso, la riprendo da capo
+      window.speechSynthesis.cancel();
     }
   }, [supported, speakFrom]);
 
